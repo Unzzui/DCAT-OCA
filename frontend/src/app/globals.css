@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --oca-blue: #294D6D;
+    --oca-blue-light: #4A7BA7;
+    --oca-blue-lighter: #E8F1F8;
+    --oca-blue-dark: #1E3A52;
+    --oca-red: #DE473C;
+    --oca-red-light: #FDEAEA;
+    --oca-red-dark: #C73C32;
+  }
+
+  * {
+    @apply border-gray-200;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900 antialiased;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-oca-blue text-white px-4 py-2 rounded-md font-medium
+           hover:bg-oca-blue-dark transition-colors duration-200
+           focus:outline-none focus:ring-2 focus:ring-oca-blue focus:ring-offset-2;
+  }
+
+  .btn-secondary {
+    @apply bg-transparent text-oca-blue border border-oca-blue px-4 py-2 rounded-md font-medium
+           hover:bg-oca-blue-lighter transition-colors duration-200
+           focus:outline-none focus:ring-2 focus:ring-oca-blue focus:ring-offset-2;
+  }
+
+  .btn-danger {
+    @apply bg-oca-red text-white px-4 py-2 rounded-md font-medium
+           hover:bg-oca-red-dark transition-colors duration-200
+           focus:outline-none focus:ring-2 focus:ring-oca-red focus:ring-offset-2;
+  }
+
+  .card {
+    @apply bg-white rounded-lg shadow-tremor-card p-6;
+  }
+
+  .input {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-md
+           focus:outline-none focus:ring-2 focus:ring-oca-blue focus:border-transparent
+           placeholder:text-gray-400;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-gray-700 mb-1;
+  }
+}
+
+/* Scrollbar styles */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+
+/* Animations */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}

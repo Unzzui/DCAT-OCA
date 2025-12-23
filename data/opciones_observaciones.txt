@@ -1,0 +1,40 @@
+Neutro de cliente no cumple código de colores
+Neutro de compañía no identificado
+Neutro de cliente y compañía no cumplen código de colores
+Falta marcar neutro de salida a UT
+Falta chicote o conexión de neutro de compañía
+Concentrador mal programado o configurado
+Distinto concentrador
+Medidor defectuoso
+Medidor mal configurado o mal configurado en tarifas
+Medidor cruzado en sistema
+Medidor sin suministro eléctrico o no energizado
+Medidor mal ingresado en sistema
+Distinto medidor
+Sin medidor
+Display del medidor muestra APC
+Medidor sin rieldin para sujetar a carcasa
+Dirección errónea o mal ingresada en sistema
+Error en información de catastro
+Número de medidor mal ingresado
+Número de depto mal rotulado en tapa caja empalme
+Medidores mal identificados
+Conductor o cable con aislación dañada
+Sin sello tapa terminal
+Sin sello tapa caja de empalme
+Sin sello medidor
+Sin sello en transformadores de tensión
+Sin perno biela o perno triángulo no cambiado
+Sin perno de seguridad
+Tapa caja de empalme suelta o con porta perno roto
+Tapa cubre perno biela rota
+Falta parte de tapa de caja de distribución de cables
+Falta alimentación en bornera
+Trabajo mal ejecutado o deficiente
+Fuera de norma
+Tierra no conectada o sin conexión de tierra de protección
+Cables de conexión sin terminales de punta
+No es posible realizar inspección
+Perno se encuentra rodado
+Empalme anterior no retirado
+Sin novedad
