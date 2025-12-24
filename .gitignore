@@ -33,3 +33,9 @@ npm-debug.log*
 *.xls
 # Keep CSV for MVP
 # *.csv
+
+# Claude AI
+.claude/
+
+# Tunnel scripts
+ngrok_link.bat
