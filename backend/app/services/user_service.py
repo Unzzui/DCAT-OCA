@@ -44,6 +44,17 @@ def init_default_users():
         )
         USERS_DB[viewer.email] = viewer
 
+    if "diego.bravob@ocaglobal.com" not in USERS_DB:
+        diego = UserInDB(
+            id=4,
+            email="diego.bravob@ocaglobal.com",
+            full_name="Diego Bravo",
+            role="admin",
+            is_active=True,
+            created_at=datetime.utcnow(),
+            hashed_password=get_password_hash("diego123"),
+        )
+        USERS_DB[diego.email] = diego
 
 def get_user_by_email(email: str) -> Optional[UserInDB]:
     return USERS_DB.get(email)

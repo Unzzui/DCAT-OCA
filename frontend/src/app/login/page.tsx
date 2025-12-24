@@ -53,8 +53,8 @@ export default function LoginPage() {
               src="/logoOcaHorizontal.svg"
               alt="OCA Global"
               width={200}
-              height={100}
-              className="h-12 w-auto"
+              height={150}
+              className="h-14 w-auto"
             />
           </div>
 
@@ -103,43 +103,37 @@ export default function LoginPage() {
           </form>
 
           {/* Footer */}
-          <div className="mt-8 flex items-center justify-center gap-2 text-sm text-gray-500">
-            <span>Servicio para</span>
-            <Image
-              src="/logo-enel.png"
-              alt="Enel"
-              width={60}
-              height={20}
-              className="h-5 w-auto"
-            />
-          </div>
+  
         </div>
       </div>
 
       {/* Right side - Branding */}
-      <div className="hidden bg-oca-blue lg:flex lg:w-1/2 lg:flex-col lg:items-center lg:justify-center lg:p-12">
-        <div className="max-w-md text-center">
-          <h2 className="text-3xl font-bold text-white">
-            Dashboard de Control y Analisis Tecnico
-          </h2>
-          <p className="mt-4 text-lg text-white/80">
-            Monitorea y analiza los servicios de Informe NNCC, Lecturas,
-            Corte y Reposicion, y Control de Perdidas en un solo lugar.
+      <div className="hidden lg:flex lg:w-1/2 lg:flex-col lg:items-center lg:justify-center relative overflow-hidden bg-gradient-to-br from-oca-blue via-oca-blue to-blue-900">
+        {/* Decorative circles */}
+        <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
+        <div className="absolute bottom-0 left-0 w-80 h-80 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
+        <div className="absolute top-1/2 left-1/2 w-64 h-64 bg-white/5 rounded-full -translate-x-1/2 -translate-y-1/2" />
+
+        {/* Content */}
+        <div className="relative z-10 flex flex-col items-center">
+          <Image
+            src="/logoOcaHorizontal.svg"
+            alt="OCA Global"
+            width={280}
+            height={100}
+            className="brightness-0 invert opacity-90"
+          />
+          <div className="mt-8 h-px w-24 bg-white/30" />
+          <p className="mt-4 text-white/50 text-xs tracking-widest uppercase">
+            Servicio para
           </p>
-          <div className="mt-8 flex justify-center gap-4">
-            <div className="rounded-lg bg-white/10 p-4 text-center">
-              <p className="text-2xl font-bold text-white">4</p>
-              <p className="text-sm text-white/70">Servicios</p>
-            </div>
-            <div className="rounded-lg bg-white/10 p-4 text-center">
-              <p className="text-2xl font-bold text-white">10K+</p>
-              <p className="text-sm text-white/70">Registros</p>
-            </div>
-            <div className="rounded-lg bg-white/10 p-4 text-center">
-              <p className="text-2xl font-bold text-white">24/7</p>
-              <p className="text-sm text-white/70">Monitoreo</p>
-            </div>
-          </div>
+          <Image
+            src="/logo-enel.png"
+            alt="Enel"
+            width={120}
+            height={40}
+            className="mt-3 brightness-0 invert opacity-80"
+          />
         </div>
       </div>
     </div>

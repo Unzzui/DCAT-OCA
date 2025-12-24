@@ -492,7 +492,7 @@ export default function InformeNNCCPage() {
                         <p className="text-2xl font-bold text-oca-blue">{stats?.tasa_efectividad || 0}%</p>
                         <p className="text-xs text-gray-500">Tasa de Efectividad</p>
                       </div>
-                      {stats?.comparativas.efectividad.diferencia !== 0 && (
+                      {stats && stats.comparativas.efectividad.diferencia !== 0 && (
                         <div className={`flex items-center gap-1 px-2 py-1 rounded ${
                           stats.comparativas.efectividad.diferencia > 0 ? 'bg-emerald-100' : 'bg-rose-100'
                         }`}>
@@ -521,7 +521,7 @@ export default function InformeNNCCPage() {
                         Sobre {formatNumber(totalEfectivas)} inspecciones efectivas
                       </Text>
                     </div>
-                    {stats?.comparativas.bien_ejecutado.diferencia !== 0 && (
+                    {stats && stats.comparativas.bien_ejecutado.diferencia !== 0 && (
                       <div className={`flex items-center gap-1 px-2 py-1 rounded ${
                         stats.comparativas.bien_ejecutado.diferencia > 0 ? 'bg-emerald-100' : 'bg-rose-100'
                       }`}>
@@ -582,7 +582,7 @@ export default function InformeNNCCPage() {
                         Sobre {formatNumber(totalClienteConRespuesta)} inspecciones con respuesta
                       </Text>
                     </div>
-                    {stats?.comparativas.conformidad.diferencia !== 0 && (
+                    {stats && stats.comparativas.conformidad.diferencia !== 0 && (
                       <div className={`flex items-center gap-1 px-2 py-1 rounded ${
                         stats.comparativas.conformidad.diferencia > 0 ? 'bg-emerald-100' : 'bg-rose-100'
                       }`}>
@@ -647,7 +647,7 @@ export default function InformeNNCCPage() {
                         Sobre {formatNumber(totalNormaCCConRespuesta)} inspecciones con respuesta
                       </Text>
                     </div>
-                    {stats?.comparativas.cumple_norma_cc.diferencia !== 0 && (
+                    {stats && stats.comparativas.cumple_norma_cc.diferencia !== 0 && (
                       <div className={`flex items-center gap-1 px-2 py-1 rounded ${
                         stats.comparativas.cumple_norma_cc.diferencia > 0 ? 'bg-emerald-100' : 'bg-rose-100'
                       }`}>
@@ -977,53 +977,7 @@ export default function InformeNNCCPage() {
 
             {/* Insights Panel */}
             <TabPanel>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Alertas y Advertencias */}
-                <Card>
-                  <Title>Alertas y Recomendaciones</Title>
-                  <Text className="text-gray-500">Puntos de atencion basados en los datos actuales</Text>
-                  <div className="mt-6 space-y-4">
-                    {stats?.insights && stats.insights.length > 0 ? (
-                      stats.insights.map((insight, idx) => (
-                        <div
-                          key={idx}
-                          className={`p-4 rounded-lg border-l-4 ${
-                            insight.tipo === 'success' ? 'bg-emerald-50 border-emerald-500' :
-                            insight.tipo === 'warning' ? 'bg-amber-50 border-amber-500' :
-                            'bg-blue-50 border-blue-500'
-                          }`}
-                        >
-                          <div className="flex items-start gap-3">
-                            {insight.tipo === 'success' ? (
-                              <CheckCircle size={20} className="text-emerald-500 mt-0.5 flex-shrink-0" />
-                            ) : insight.tipo === 'warning' ? (
-                              <AlertTriangle size={20} className="text-amber-500 mt-0.5 flex-shrink-0" />
-                            ) : (
-                              <Info size={20} className="text-blue-500 mt-0.5 flex-shrink-0" />
-                            )}
-                            <div>
-                              <p className={`text-sm font-semibold ${
-                                insight.tipo === 'success' ? 'text-emerald-700' :
-                                insight.tipo === 'warning' ? 'text-amber-700' :
-                                'text-blue-700'
-                              }`}>{insight.titulo}</p>
-                              <p className="text-sm text-gray-600 mt-1">{insight.mensaje}</p>
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-center py-8 text-gray-400">
-                        <CheckCircle size={32} className="mx-auto mb-3 text-emerald-400" />
-                        <p className="text-sm font-medium text-gray-600">Todo en orden</p>
-                        <p className="text-xs text-gray-400 mt-1">No hay alertas o advertencias activas</p>
-                      </div>
-                    )}
-                  </div>
-                </Card>
-
-                {/* Comparativas Mes a Mes */}
-                <Card>
+              <Card>
                   <Title>Comparativa Mes Actual vs Anterior</Title>
                   <Text className="text-gray-500">Variacion de indicadores clave</Text>
                   <div className="mt-6 space-y-4">
@@ -1038,18 +992,18 @@ export default function InformeNNCCPage() {
                         </div>
                         <div className="text-right">
                           <p className="text-xl font-bold text-oca-blue">{stats?.comparativas.efectividad.actual || 0}%</p>
-                          {stats?.comparativas.efectividad.diferencia !== 0 && (
+                          {stats && stats.comparativas.efectividad.diferencia !== 0 && (
                             <div className={`flex items-center justify-end gap-1 ${
-                              (stats?.comparativas.efectividad.diferencia || 0) > 0 ? 'text-emerald-600' : 'text-rose-600'
+                              stats.comparativas.efectividad.diferencia > 0 ? 'text-emerald-600' : 'text-rose-600'
                             }`}>
-                              {(stats?.comparativas.efectividad.diferencia || 0) > 0 ? (
+                              {stats.comparativas.efectividad.diferencia > 0 ? (
                                 <TrendingUp size={14} />
                               ) : (
                                 <TrendingDown size={14} />
                               )}
                               <span className="text-sm font-semibold">
-                                {(stats?.comparativas.efectividad.diferencia || 0) > 0 ? '+' : ''}
-                                {stats?.comparativas.efectividad.diferencia}%
+                                {stats.comparativas.efectividad.diferencia > 0 ? '+' : ''}
+                                {stats.comparativas.efectividad.diferencia}%
                               </span>
                             </div>
                           )}
@@ -1068,18 +1022,18 @@ export default function InformeNNCCPage() {
                         </div>
                         <div className="text-right">
                           <p className="text-xl font-bold text-emerald-600">{stats?.comparativas.bien_ejecutado.actual || 0}%</p>
-                          {stats?.comparativas.bien_ejecutado.diferencia !== 0 && (
+                          {stats && stats.comparativas.bien_ejecutado.diferencia !== 0 && (
                             <div className={`flex items-center justify-end gap-1 ${
-                              (stats?.comparativas.bien_ejecutado.diferencia || 0) > 0 ? 'text-emerald-600' : 'text-rose-600'
+                              stats.comparativas.bien_ejecutado.diferencia > 0 ? 'text-emerald-600' : 'text-rose-600'
                             }`}>
-                              {(stats?.comparativas.bien_ejecutado.diferencia || 0) > 0 ? (
+                              {stats.comparativas.bien_ejecutado.diferencia > 0 ? (
                                 <TrendingUp size={14} />
                               ) : (
                                 <TrendingDown size={14} />
                               )}
                               <span className="text-sm font-semibold">
-                                {(stats?.comparativas.bien_ejecutado.diferencia || 0) > 0 ? '+' : ''}
-                                {stats?.comparativas.bien_ejecutado.diferencia}%
+                                {stats.comparativas.bien_ejecutado.diferencia > 0 ? '+' : ''}
+                                {stats.comparativas.bien_ejecutado.diferencia}%
                               </span>
                             </div>
                           )}
@@ -1098,18 +1052,18 @@ export default function InformeNNCCPage() {
                         </div>
                         <div className="text-right">
                           <p className="text-xl font-bold text-amber-600">{stats?.comparativas.conformidad.actual || 0}%</p>
-                          {stats?.comparativas.conformidad.diferencia !== 0 && (
+                          {stats && stats.comparativas.conformidad.diferencia !== 0 && (
                             <div className={`flex items-center justify-end gap-1 ${
-                              (stats?.comparativas.conformidad.diferencia || 0) > 0 ? 'text-emerald-600' : 'text-rose-600'
+                              stats.comparativas.conformidad.diferencia > 0 ? 'text-emerald-600' : 'text-rose-600'
                             }`}>
-                              {(stats?.comparativas.conformidad.diferencia || 0) > 0 ? (
+                              {stats.comparativas.conformidad.diferencia > 0 ? (
                                 <TrendingUp size={14} />
                               ) : (
                                 <TrendingDown size={14} />
                               )}
                               <span className="text-sm font-semibold">
-                                {(stats?.comparativas.conformidad.diferencia || 0) > 0 ? '+' : ''}
-                                {stats?.comparativas.conformidad.diferencia}%
+                                {stats.comparativas.conformidad.diferencia > 0 ? '+' : ''}
+                                {stats.comparativas.conformidad.diferencia}%
                               </span>
                             </div>
                           )}
@@ -1128,18 +1082,18 @@ export default function InformeNNCCPage() {
                         </div>
                         <div className="text-right">
                           <p className="text-xl font-bold text-violet-600">{stats?.comparativas.cumple_norma_cc.actual || 0}%</p>
-                          {stats?.comparativas.cumple_norma_cc.diferencia !== 0 && (
+                          {stats && stats.comparativas.cumple_norma_cc.diferencia !== 0 && (
                             <div className={`flex items-center justify-end gap-1 ${
-                              (stats?.comparativas.cumple_norma_cc.diferencia || 0) > 0 ? 'text-emerald-600' : 'text-rose-600'
+                              stats.comparativas.cumple_norma_cc.diferencia > 0 ? 'text-emerald-600' : 'text-rose-600'
                             }`}>
-                              {(stats?.comparativas.cumple_norma_cc.diferencia || 0) > 0 ? (
+                              {stats.comparativas.cumple_norma_cc.diferencia > 0 ? (
                                 <TrendingUp size={14} />
                               ) : (
                                 <TrendingDown size={14} />
                               )}
                               <span className="text-sm font-semibold">
-                                {(stats?.comparativas.cumple_norma_cc.diferencia || 0) > 0 ? '+' : ''}
-                                {stats?.comparativas.cumple_norma_cc.diferencia}%
+                                {stats.comparativas.cumple_norma_cc.diferencia > 0 ? '+' : ''}
+                                {stats.comparativas.cumple_norma_cc.diferencia}%
                               </span>
                             </div>
                           )}
@@ -1148,7 +1102,6 @@ export default function InformeNNCCPage() {
                     </div>
                   </div>
                 </Card>
-              </div>
 
               {/* Top Comunas Problemáticas */}
               <Card className="mt-6">
