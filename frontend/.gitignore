@@ -3,6 +3,7 @@
 /.pnp
 .pnp.js
 .yarn/install-state.gz
+/.claude
 
 # Testing
 /coverage
@@ -34,4 +35,4 @@ yarn-error.log*
 next-env.d.ts
 
 
-ngrok_link.bat
+.ngrok_link.bat
