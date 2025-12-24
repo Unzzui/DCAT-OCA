@@ -12,7 +12,6 @@ PRECIO_INSPECCION = 3000
 
 
 def load_data(force_reload: bool = False) -> pd.DataFrame:
-    """Load CSV data into a pandas DataFrame with caching."""
     global _df_cache
 
     if _df_cache is not None and not force_reload:
@@ -105,7 +104,6 @@ def get_filtered_data(
     sort_by: str = "fecha_inspeccion",
     order: str = "desc"
 ) -> Dict[str, Any]:
-    """Get filtered and paginated data."""
     df = load_data()
 
     if df.empty:
