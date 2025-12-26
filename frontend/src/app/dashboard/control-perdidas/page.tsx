@@ -719,187 +719,212 @@ export default function ControlPerdidasPage() {
               </Card>
             </TabPanel>
 
-            {/* Metricas Electricas Panel */}
+            {/* Métricas Eléctricas Panel */}
             <TabPanel>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-                {/* Voltaje */}
-                <Card decoration="top" decorationColor="blue">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
-                      <Zap size={24} className="text-blue-600" />
-                    </div>
-                    <div>
-                      <Text>Voltaje Promedio</Text>
-                      <Metric>{stats?.metricas_electricas.voltaje_promedio || 0} V</Metric>
-                    </div>
+              {/* KPIs Eléctricos */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <Card className="text-center">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center mx-auto mb-2">
+                    <Zap size={20} className="text-blue-600" />
                   </div>
-                  <Text className="mt-4 text-gray-500">
-                    Voltaje promedio medido en inspecciones
-                  </Text>
+                  <p className="text-2xl font-bold text-blue-600">{stats?.metricas_electricas.voltaje_promedio || 220} V</p>
+                  <Text className="text-sm">Voltaje Promedio</Text>
                 </Card>
-
-                {/* Amperaje */}
-                <Card decoration="top" decorationColor="amber">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-lg bg-amber-100 flex items-center justify-center">
-                      <Gauge size={24} className="text-amber-600" />
-                    </div>
-                    <div>
-                      <Text>Amperaje Promedio</Text>
-                      <Metric>{stats?.metricas_electricas.amperaje_promedio || 0} A</Metric>
-                    </div>
+                <Card className="text-center">
+                  <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-2">
+                    <Gauge size={20} className="text-amber-600" />
                   </div>
-                  <Text className="mt-4 text-gray-500">
-                    Corriente promedio medida en equipos
-                  </Text>
+                  <p className="text-2xl font-bold text-amber-600">{stats?.metricas_electricas.amperaje_promedio || 0} A</p>
+                  <Text className="text-sm">Amperaje Promedio</Text>
                 </Card>
-
-                {/* Factor de Potencia */}
-                <Card decoration="top" decorationColor="violet">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-lg bg-violet-100 flex items-center justify-center">
-                      <CheckCircle size={24} className="text-violet-600" />
-                    </div>
-                    <div>
-                      <Text>Factor Potencia Prom.</Text>
-                      <Metric>{stats?.metricas_electricas.factor_potencia_promedio || 0}</Metric>
-                    </div>
+                <Card className="text-center">
+                  <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-2">
+                    <CheckCircle size={20} className="text-emerald-600" />
                   </div>
-                  <Text className="mt-4 text-gray-500">
-                    Factor de potencia en inspecciones trifasicas
-                  </Text>
+                  <p className="text-2xl font-bold text-emerald-600">{stats?.metricas_electricas.error_promedio || 0}%</p>
+                  <Text className="text-sm">Error Promedio</Text>
+                </Card>
+                <Card className="text-center">
+                  <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center mx-auto mb-2">
+                    <AlertTriangle size={20} className="text-rose-600" />
+                  </div>
+                  <p className="text-2xl font-bold text-rose-600">{stats?.metricas_electricas.error_max || 0}%</p>
+                  <Text className="text-sm">Error Máximo</Text>
                 </Card>
               </div>
 
-              {/* Error de Medicion */}
-              <Card className="mb-6">
-                <Title className="flex items-center gap-2">
-                  <AlertTriangle size={20} className="text-amber-500" />
-                  Error de Medicion
-                </Title>
-                <Text className="text-gray-500">Porcentaje de error detectado en medidores</Text>
-                <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="text-center p-6 bg-blue-50 rounded-lg">
-                    <p className="text-4xl font-bold text-blue-600">{stats?.metricas_electricas.error_promedio || 0}%</p>
-                    <p className="text-sm text-gray-600 mt-2">Error Promedio</p>
-                  </div>
-                  <div className="text-center p-6 bg-rose-50 rounded-lg">
-                    <p className="text-4xl font-bold text-rose-600">{stats?.metricas_electricas.error_max || 0}%</p>
-                    <p className="text-sm text-gray-600 mt-2">Error Maximo Detectado</p>
-                  </div>
-                </div>
-                {stats && stats.metricas_electricas.error_max > 5 && (
-                  <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle size={16} className="text-amber-600" />
-                      <span className="text-sm font-medium text-amber-800">
-                        Se detectaron medidores con error superior al 5%, requieren revision
-                      </span>
+              {/* Estado de Instalación */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <Card>
+                  <Title>Estado de la Instalación</Title>
+                  <Text className="text-gray-500">Condición de componentes físicos</Text>
+                  <div className="mt-4 space-y-4">
+                    <div>
+                      <Flex justifyContent="between" className="mb-1">
+                        <Text>Acometida Normal</Text>
+                        <Text className="font-medium text-emerald-600">
+                          {stats?.calidad_instalacion.acometida_normal || 0} / {(stats?.calidad_instalacion.acometida_normal || 0) + (stats?.calidad_instalacion.acometida_anormal || 0)}
+                        </Text>
+                      </Flex>
+                      <ProgressBar
+                        value={stats ? (stats.calidad_instalacion.acometida_normal / ((stats.calidad_instalacion.acometida_normal + stats.calidad_instalacion.acometida_anormal) || 1) * 100) : 0}
+                        color="emerald"
+                      />
+                    </div>
+                    <div>
+                      <Flex justifyContent="between" className="mb-1">
+                        <Text>Caja Normal</Text>
+                        <Text className="font-medium text-emerald-600">
+                          {stats?.calidad_instalacion.caja_normal || 0} / {(stats?.calidad_instalacion.caja_normal || 0) + (stats?.calidad_instalacion.caja_anormal || 0)}
+                        </Text>
+                      </Flex>
+                      <ProgressBar
+                        value={stats ? (stats.calidad_instalacion.caja_normal / ((stats.calidad_instalacion.caja_normal + stats.calidad_instalacion.caja_anormal) || 1) * 100) : 0}
+                        color="emerald"
+                      />
+                    </div>
+                    <div>
+                      <Flex justifyContent="between" className="mb-1">
+                        <Text>Tapa Normal</Text>
+                        <Text className="font-medium text-emerald-600">
+                          {stats?.calidad_instalacion.tapa_normal || 0} / {(stats?.calidad_instalacion.tapa_normal || 0) + (stats?.calidad_instalacion.tapa_anormal || 0)}
+                        </Text>
+                      </Flex>
+                      <ProgressBar
+                        value={stats ? (stats.calidad_instalacion.tapa_normal / ((stats.calidad_instalacion.tapa_normal + stats.calidad_instalacion.tapa_anormal) || 1) * 100) : 0}
+                        color="emerald"
+                      />
                     </div>
                   </div>
-                )}
-              </Card>
+                </Card>
+
+                {/* Anomalías Detectadas */}
+                <Card>
+                  <Title>Anomalías Detectadas</Title>
+                  <Text className="text-gray-500">Problemas encontrados en equipos</Text>
+                  <div className="mt-4 space-y-3">
+                    <div className="flex justify-between items-center p-3 bg-red-50 rounded-lg">
+                      <span className="text-sm font-medium">Modelo no corresponde</span>
+                      <span className="text-lg font-bold text-red-600">{stats?.anomalias.modelo_no_corresponde || 0}</span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-amber-50 rounded-lg">
+                      <span className="text-sm font-medium">Medidor no corresponde</span>
+                      <span className="text-lg font-bold text-amber-600">{stats?.anomalias.medidor_no_corresponde || 0}</span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-orange-50 rounded-lg">
+                      <span className="text-sm font-medium">Requiere normalización</span>
+                      <span className="text-lg font-bold text-orange-600">{stats?.anomalias.requiere_normalizacion || 0}</span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-rose-50 rounded-lg">
+                      <span className="text-sm font-medium">Perno no normalizado</span>
+                      <span className="text-lg font-bold text-rose-600">{stats?.anomalias.perno_no_normalizado || 0}</span>
+                    </div>
+                  </div>
+                </Card>
+              </div>
 
               {/* Tipo de Giro/Cliente */}
-              <Card>
-                <Title>Tipo de Cliente (Giro)</Title>
-                <Text className="text-gray-500">Distribucion por tipo de uso</Text>
-                <BarChart
-                  className="mt-4 h-64"
-                  data={giroChartData}
-                  index="name"
-                  categories={['value']}
-                  colors={['indigo']}
-                  valueFormatter={(v) => formatNumber(v)}
-                  layout="vertical"
-                  yAxisWidth={150}
-                  showAnimation
-                />
-              </Card>
+              {giroChartData.length > 0 && (
+                <Card>
+                  <Title>Tipo de Cliente (Giro)</Title>
+                  <Text className="text-gray-500">Distribución por tipo de uso</Text>
+                  <BarChart
+                    className="mt-4 h-48"
+                    data={giroChartData}
+                    index="name"
+                    categories={['value']}
+                    colors={['indigo']}
+                    valueFormatter={(v) => formatNumber(v)}
+                    showAnimation
+                  />
+                </Card>
+              )}
             </TabPanel>
 
             {/* Tendencias Panel */}
             <TabPanel>
-              {/* Gráfico de Evolución Mensual */}
-              <Card className="mb-6">
-                <Title className="flex items-center gap-2">
-                  <TrendingUp size={20} className="text-blue-500" />
-                  Evolución Mensual de Inspecciones
-                </Title>
-                <Text className="text-gray-500">Tendencia de inspecciones y tasa de normalidad por período</Text>
-                {evolucion.length > 0 ? (
-                  <AreaChart
-                    className="mt-4 h-72"
-                    data={evolucion.map(e => ({
-                      periodo: e.periodo,
-                      'Inspecciones': e.total,
-                      'Normales': e.normales,
-                    }))}
-                    index="periodo"
-                    categories={['Inspecciones', 'Normales']}
-                    colors={['blue', 'emerald']}
+              {/* Insights del Período */}
+              {stats?.insights && stats.insights.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                  {stats.insights.map((insight, idx) => (
+                    <Card
+                      key={idx}
+                      decoration="left"
+                      decorationColor={insight.tipo === 'success' ? 'emerald' : insight.tipo === 'warning' ? 'amber' : 'blue'}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`p-2 rounded-lg ${
+                          insight.tipo === 'success' ? 'bg-emerald-100' :
+                          insight.tipo === 'warning' ? 'bg-amber-100' : 'bg-blue-100'
+                        }`}>
+                          {insight.tipo === 'success' ? (
+                            <CheckCircle size={20} className="text-emerald-600" />
+                          ) : insight.tipo === 'warning' ? (
+                            <AlertTriangle size={20} className="text-amber-600" />
+                          ) : (
+                            <Zap size={20} className="text-blue-600" />
+                          )}
+                        </div>
+                        <div>
+                          <Title className="text-base">{insight.titulo}</Title>
+                          <Text className="mt-1">{insight.mensaje}</Text>
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              {/* Resumen de Resultados */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <Card>
+                  <Title>Distribución por Resultado</Title>
+                  <Text className="text-gray-500">Clasificación de las inspecciones ejecutadas</Text>
+                  <DonutChart
+                    className="mt-4 h-48"
+                    data={stats?.por_resultado?.map(r => ({
+                      name: r.resultado || 'Sin Clasificar',
+                      value: r.cantidad
+                    })) || []}
+                    category="value"
+                    index="name"
+                    colors={['emerald', 'amber', 'blue', 'gray', 'rose']}
                     valueFormatter={(v) => formatNumber(v)}
                     showAnimation
                   />
-                ) : (
-                  <div className="mt-4 h-72 flex items-center justify-center text-gray-400">
-                    <div className="text-center">
-                      <Calendar size={32} className="mx-auto mb-2" />
-                      <p className="text-sm">No hay datos de evolución disponibles</p>
-                    </div>
-                  </div>
-                )}
-              </Card>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                {/* Tendencia de Tasa de Normalidad */}
-                <Card>
-                  <Title>Tendencia de Tasa de Normalidad</Title>
-                  <Text className="text-gray-500">Porcentaje de inspecciones con resultado normal</Text>
-                  {evolucion.length > 0 ? (
-                    <AreaChart
-                      className="mt-4 h-48"
-                      data={evolucion.map(e => ({
-                        periodo: e.periodo,
-                        'Tasa Normalidad': e.tasa_normalidad,
-                        'Meta': 90,
-                      }))}
-                      index="periodo"
-                      categories={['Tasa Normalidad', 'Meta']}
-                      colors={['emerald', 'gray']}
-                      valueFormatter={(v) => `${v}%`}
-                      showAnimation
-                    />
-                  ) : (
-                    <div className="mt-4 h-48 flex items-center justify-center text-gray-400">
-                      <p className="text-sm">Sin datos</p>
-                    </div>
-                  )}
                 </Card>
 
-                {/* Tendencia de Anomalías */}
                 <Card>
-                  <Title>Tendencia de Anomalías</Title>
-                  <Text className="text-gray-500">Detección de problemas en equipos por período</Text>
-                  {evolucion.length > 0 ? (
-                    <AreaChart
-                      className="mt-4 h-48"
-                      data={evolucion.map(e => ({
-                        periodo: e.periodo,
-                        'Anomalías': e.anomalias,
-                        'Tasa %': e.tasa_anomalias,
-                      }))}
-                      index="periodo"
-                      categories={['Anomalías']}
-                      colors={['rose']}
-                      valueFormatter={(v) => formatNumber(v)}
-                      showAnimation
-                    />
-                  ) : (
-                    <div className="mt-4 h-48 flex items-center justify-center text-gray-400">
-                      <p className="text-sm">Sin datos</p>
+                  <Title>Resumen de Calidad</Title>
+                  <Text className="text-gray-500">Indicadores clave del período</Text>
+                  <div className="mt-4 space-y-4">
+                    <div className="p-4 bg-emerald-50 rounded-lg">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium">Tasa de Ejecución</span>
+                        <span className="text-2xl font-bold text-emerald-600">{stats?.tasa_ejecucion || 0}%</span>
+                      </div>
+                      <ProgressBar value={stats?.tasa_ejecucion || 0} color="emerald" className="mt-2" />
                     </div>
-                  )}
+                    <div className="p-4 bg-blue-50 rounded-lg">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium">Inspecciones Normales</span>
+                        <span className="text-2xl font-bold text-blue-600">
+                          {stats?.por_resultado?.find(r => r.resultado === 'NORMAL')?.cantidad || 0} / {stats?.total_ejecutadas || 0}
+                        </span>
+                      </div>
+                      <ProgressBar
+                        value={stats?.total_ejecutadas ? ((stats.por_resultado?.find(r => r.resultado === 'NORMAL')?.cantidad || 0) / stats.total_ejecutadas * 100) : 0}
+                        color="blue"
+                        className="mt-2"
+                      />
+                    </div>
+                    <div className="p-4 bg-amber-50 rounded-lg">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium">Total Anomalías</span>
+                        <span className="text-2xl font-bold text-amber-600">{totalAnomalias}</span>
+                      </div>
+                    </div>
+                  </div>
                 </Card>
               </div>
 
