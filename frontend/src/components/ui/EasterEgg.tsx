@@ -175,8 +175,15 @@ export default function EasterEgg() {
       className="fixed inset-0 z-[9999] flex items-center justify-center overflow-hidden cursor-pointer"
       onClick={handleClose}
     >
-      {/* Fondo disco/fiesta EPICO */}
-      <div className="absolute inset-0 disco-bg" style={{ filter: `brightness(${0.8 + pulse * 0.3})` }} />
+      {/* Fondo imagen */}
+      <div
+        className="absolute inset-0 bg-cover bg-center"
+        style={{
+          backgroundImage: 'url(/easter-egg/fondo.png)',
+          filter: `brightness(${0.7 + pulse * 0.4}) saturate(${1 + (pulse - 1) * 2})`,
+          transform: `scale(${1 + (pulse - 1) * 0.1})`,
+        }}
+      />
 
       {/* Capa de estrellas */}
       <div className="absolute inset-0 stars-bg" />
