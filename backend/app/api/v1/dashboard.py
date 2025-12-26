@@ -8,7 +8,7 @@ from typing import Dict, Any
 import os
 from datetime import datetime
 from ...schemas.user import User
-from ...services import data_service, lecturas_service, teleco_service
+from ...services import data_service, lecturas_service, teleco_service, calidad_service
 from ..deps import get_current_user
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -61,6 +61,18 @@ async def get_dashboard_summary(
     teleco_csv_path = os.path.join(base_path, "informe_teleco.csv")
     teleco_updated = get_file_update_time(teleco_csv_path)
 
+    # === Control de Perdidas Stats ===
+    calidad_stats = calidad_service.get_calidad_stats()
+    calidad_files = [
+        os.path.join(base_path, "informe_calidad_mono_BASE.csv"),
+        os.path.join(base_path, "informe_calidad_tri_BASE.csv"),
+    ]
+    calidad_updated = None
+    for f in calidad_files:
+        t = get_file_update_time(f)
+        if t and (calidad_updated is None or t > calidad_updated):
+            calidad_updated = t
+
     # === Build Response ===
     return {
         "nncc": {
@@ -71,7 +83,6 @@ async def get_dashboard_summary(
             "bien_ejecutados": nncc_stats.get("bien_ejecutados", 0),
             "mal_ejecutados": nncc_stats.get("mal_ejecutados", 0),
             "con_multa": nncc_stats.get("con_multa", 0),
-            "monto_estimado": nncc_stats.get("monto_estimado", 0),
             "por_zona": nncc_stats.get("por_zona", {}),
             "por_mes": nncc_stats.get("por_mes", []),
             "comparativas": nncc_stats.get("comparativas", {}),
@@ -110,13 +121,26 @@ async def get_dashboard_summary(
             "activo": False,
         },
         "control_perdidas": {
-            "total": 0,
-            "ultima_actualizacion": None,
-            "activo": False,
+            "total_solicitadas": calidad_stats.get("total_solicitadas", 0),
+            "total_ejecutadas": calidad_stats.get("total_ejecutadas", 0),
+            "pendientes": calidad_stats.get("pendientes", 0),
+            "tasa_ejecucion": calidad_stats.get("tasa_ejecucion", 0),
+            "monofasico": calidad_stats.get("monofasico", {}),
+            "trifasico": calidad_stats.get("trifasico", {}),
+            "por_resultado": calidad_stats.get("por_resultado", [])[:5],
+            "por_contratista": calidad_stats.get("por_contratista", [])[:5],
+            "anomalias": calidad_stats.get("anomalias", {}),
+            "ultima_actualizacion": calidad_updated,
+            "activo": calidad_stats.get("total_ejecutadas", 0) > 0,
         },
         "resumen_general": {
-            "total_registros": nncc_stats.get("total", 0) + lecturas_stats.get("total", 0) + teleco_stats.get("total", 0),
-            "modulos_activos": 3,
-            "modulos_pendientes": 2,
+            "total_registros": (
+                nncc_stats.get("total", 0) +
+                lecturas_stats.get("total", 0) +
+                teleco_stats.get("total", 0) +
+                calidad_stats.get("total_ejecutadas", 0)
+            ),
+            "modulos_activos": 4 if calidad_stats.get("total_ejecutadas", 0) > 0 else 3,
+            "modulos_pendientes": 1 if calidad_stats.get("total_ejecutadas", 0) > 0 else 2,
         }
     }

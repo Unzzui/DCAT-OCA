@@ -36,7 +36,7 @@ Dashboard web para consolidar y visualizar datos de servicios prestados a Enel p
 cd backend
 
 # Crear entorno virtual
-python -m venv venv
+python -m venv venv.
 
 # Activar entorno virtual
 # Windows:

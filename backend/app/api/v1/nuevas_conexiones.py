@@ -21,6 +21,8 @@ async def get_inspecciones(
     base: Optional[str] = Query(None, description="Filtrar por base"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    mes: Optional[int] = Query(None, description="Filtrar por mes (1-12)"),
+    anio: Optional[int] = Query(None, description="Filtrar por año"),
     page: int = Query(1, ge=1, description="Pagina"),
     limit: int = Query(50, ge=1, le=500, description="Registros por pagina"),
     sort_by: str = Query("fecha_inspeccion", description="Campo para ordenar"),
@@ -37,6 +39,8 @@ async def get_inspecciones(
         base=base,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
+        mes=mes,
+        anio=anio,
         page=page,
         limit=limit,
         sort_by=sort_by,
@@ -50,6 +54,8 @@ async def get_stats(
     base: Optional[str] = Query(None, description="Filtrar por base/periodo"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    mes: Optional[int] = Query(None, description="Filtrar por mes (1-12)"),
+    anio: Optional[int] = Query(None, description="Filtrar por año"),
     current_user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Get aggregated statistics for NNCC inspections with optional filters."""
@@ -58,6 +64,8 @@ async def get_stats(
         base=base,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
+        mes=mes,
+        anio=anio,
     )
 
 
@@ -93,6 +101,14 @@ async def get_bases(
     return data_service.get_bases()
 
 
+@router.get("/periodos")
+async def get_periodos(
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, List[int]]:
+    """Get available months and years."""
+    return data_service.get_periodos()
+
+
 @router.get("/export")
 async def export_data(
     format: str = Query("csv", description="Formato de exportacion (csv, excel)"),
@@ -101,6 +117,10 @@ async def export_data(
     inspector: Optional[str] = None,
     estado: Optional[str] = None,
     base: Optional[str] = None,
+    fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    mes: Optional[int] = Query(None, description="Filtrar por mes (1-12)"),
+    anio: Optional[int] = Query(None, description="Filtrar por año"),
     current_user: User = Depends(get_current_user),
 ):
     """Export filtered data to CSV or Excel."""
@@ -111,6 +131,10 @@ async def export_data(
         inspector=inspector,
         estado=estado,
         base=base,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        mes=mes,
+        anio=anio,
         page=1,
         limit=100000,  # Large limit for export
     )

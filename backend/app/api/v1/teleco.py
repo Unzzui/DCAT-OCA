@@ -24,6 +24,8 @@ async def get_teleco(
     tiene_plano: Optional[str] = Query(None, description="Filtrar por tiene plano (SI/NO/INCOMPLETO)"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    mes: Optional[int] = Query(None, description="Filtrar por mes (1-12)"),
+    anio: Optional[int] = Query(None, description="Filtrar por año"),
     page: int = Query(1, ge=1, description="Pagina"),
     limit: int = Query(50, ge=1, le=500, description="Registros por pagina"),
     sort_by: str = Query("fecha_inspeccion", description="Campo para ordenar"),
@@ -40,6 +42,8 @@ async def get_teleco(
         tiene_plano=tiene_plano,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
+        mes=mes,
+        anio=anio,
         page=page,
         limit=limit,
         sort_by=sort_by,
@@ -53,6 +57,8 @@ async def get_stats(
     comuna: Optional[str] = Query(None, description="Filtrar por comuna"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    mes: Optional[int] = Query(None, description="Filtrar por mes (1-12)"),
+    anio: Optional[int] = Query(None, description="Filtrar por año"),
     current_user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Get aggregated statistics for Telecomunicaciones."""
@@ -61,6 +67,8 @@ async def get_stats(
         comuna=comuna,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
+        mes=mes,
+        anio=anio,
     )
 
 
@@ -88,6 +96,14 @@ async def get_inspectors(
     return teleco_service.get_teleco_inspectors()
 
 
+@router.get("/periodos")
+async def get_periodos(
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, List[int]]:
+    """Get available months and years."""
+    return teleco_service.get_teleco_periodos()
+
+
 @router.get("/export")
 async def export_data(
     format: str = Query("csv", description="Formato de exportacion (csv, excel)"),
@@ -95,6 +111,11 @@ async def export_data(
     empresa: Optional[str] = None,
     comuna: Optional[str] = None,
     resultado: Optional[str] = None,
+    tiene_plano: Optional[str] = Query(None, description="Filtrar por tiene plano (SI/NO/INCOMPLETO)"),
+    fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    mes: Optional[int] = Query(None, description="Filtrar por mes (1-12)"),
+    anio: Optional[int] = Query(None, description="Filtrar por año"),
     current_user: User = Depends(get_current_user),
 ):
     """Export filtered data to CSV or Excel."""
@@ -103,6 +124,11 @@ async def export_data(
         empresa=empresa,
         comuna=comuna,
         resultado=resultado,
+        tiene_plano=tiene_plano,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        mes=mes,
+        anio=anio,
         page=1,
         limit=100000,
     )

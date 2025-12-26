@@ -20,6 +20,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSidebar } from '@/contexts/SidebarContext'
+import { SidebarDownloads } from './SidebarDownloads'
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -27,7 +28,7 @@ const navigation = [
   { name: 'Lecturas', href: '/dashboard/lecturas', icon: FileText },
   { name: 'Telecom', href: '/dashboard/telecomunicaciones', icon: Radio },
   { name: 'Corte y Repo.', href: '/dashboard/corte-reposicion', icon: Scissors, disabled: true },
-  { name: 'Ctrl. Perdidas', href: '/dashboard/control-perdidas', icon: SearchX, disabled: true },
+  { name: 'Ctrl. Perdidas', href: '/dashboard/control-perdidas', icon: SearchX },
 ]
 
 const adminNavigation = [
@@ -133,6 +134,9 @@ export function Sidebar() {
 
         {/* Footer */}
         <div className="border-t border-white/10 p-2 space-y-0.5">
+          {/* Exportar */}
+          <SidebarDownloads isExpanded={isExpanded} />
+
           {/* Modo Informe */}
           <button
             onClick={setReportMode}

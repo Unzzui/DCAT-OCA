@@ -119,6 +119,34 @@ class ApiClient {
     }
     return url.toString()
   }
+
+  async downloadFile(endpoint: string, filename: string, params?: Record<string, string | number | boolean | undefined>): Promise<void> {
+    const url = this.buildUrl(endpoint, params)
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: this.getHeaders(),
+    })
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        Cookies.remove('access_token')
+        window.location.href = '/login'
+      }
+      const error = await response.json().catch(() => ({ detail: 'Error al descargar' }))
+      throw new Error(error.detail || 'Error al descargar archivo')
+    }
+
+    const blob = await response.blob()
+    const downloadUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(downloadUrl)
+  }
 }
 
 export const api = new ApiClient(API_URL)

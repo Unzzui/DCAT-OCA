@@ -91,3 +91,8 @@
 .animate-fade-in {
   animation: fade-in 0.3s ease-out;
 }
+
+/* Fix Tremor Select dropdowns z-index in modals */
+[data-radix-popper-content-wrapper] {
+  z-index: 9999 !important;
+}

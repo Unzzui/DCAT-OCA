@@ -31,8 +31,10 @@ import {
   TabPanels,
   ProgressBar,
 } from '@tremor/react'
-import { Download, Search, Filter, CheckCircle, XCircle, Users, Building, BarChart3, TrendingUp, TrendingDown, AlertTriangle, Info, AlertCircle } from 'lucide-react'
+import { Search, Filter, CheckCircle, XCircle, Users, Building, BarChart3, TrendingUp, TrendingDown, AlertTriangle, Info, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { ExportOverlay } from '@/components/ui/ExportOverlay'
+import { ExportDropdown } from '@/components/ui/ExportDropdown'
 import { formatNumber } from '@/lib/utils'
 import { api } from '@/lib/api'
 
@@ -46,7 +48,6 @@ interface Stats {
   por_zona: Record<string, number>
   por_inspector: Array<{ inspector: string; cantidad: number; efectividad: number }>
   por_mes: Array<{ mes: string; cantidad: number; efectividad: number }>
-  monto_estimado: number
   con_multa: number
   pendientes_normalizar: number
   // Client metrics
@@ -116,10 +117,28 @@ interface PaginatedResponse {
 
 const META_EFECTIVIDAD = 95
 
+const MESES = [
+  { value: 1, label: 'Enero' },
+  { value: 2, label: 'Febrero' },
+  { value: 3, label: 'Marzo' },
+  { value: 4, label: 'Abril' },
+  { value: 5, label: 'Mayo' },
+  { value: 6, label: 'Junio' },
+  { value: 7, label: 'Julio' },
+  { value: 8, label: 'Agosto' },
+  { value: 9, label: 'Septiembre' },
+  { value: 10, label: 'Octubre' },
+  { value: 11, label: 'Noviembre' },
+  { value: 12, label: 'Diciembre' },
+]
+
 export default function InformeNNCCPage() {
   // Global filters
   const [globalZona, setGlobalZona] = useState('')
   const [globalBase, setGlobalBase] = useState('')
+  const [globalMes, setGlobalMes] = useState('')
+  const [globalAnio, setGlobalAnio] = useState('')
+  const [periodos, setPeriodos] = useState<{ meses: number[]; anios: number[] }>({ meses: [], anios: [] })
 
   // Table filters
   const [dateRange, setDateRange] = useState<DateRangePickerValue>({})
@@ -134,12 +153,25 @@ export default function InformeNNCCPage() {
   const [bases, setBases] = useState<string[]>([])
   const [inspectors, setInspectors] = useState<Array<{ inspector: string; cantidad: number; efectividad: number }>>([])
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
+  const [exportFormat, setExportFormat] = useState<'excel' | 'csv'>('excel')
+
+  const fetchPeriodos = useCallback(async () => {
+    try {
+      const response = await api.get<{ meses: number[]; anios: number[] }>('/api/v1/nuevas-conexiones/periodos')
+      setPeriodos(response)
+    } catch (error) {
+      console.error('Error fetching periodos:', error)
+    }
+  }, [])
 
   const fetchStats = useCallback(async () => {
     try {
       const params = new URLSearchParams()
       if (globalZona) params.append('zona', globalZona)
       if (globalBase) params.append('base', globalBase)
+      if (globalMes) params.append('mes', globalMes)
+      if (globalAnio) params.append('anio', globalAnio)
 
       const url = `/api/v1/nuevas-conexiones/stats${params.toString() ? '?' + params.toString() : ''}`
       const response = await api.get<Stats>(url)
@@ -147,7 +179,7 @@ export default function InformeNNCCPage() {
     } catch (error) {
       console.error('Error fetching stats:', error)
     }
-  }, [globalZona, globalBase])
+  }, [globalZona, globalBase, globalMes, globalAnio])
 
   const fetchData = useCallback(async () => {
     try {
@@ -157,6 +189,8 @@ export default function InformeNNCCPage() {
       if (searchTerm) params.append('search', searchTerm)
       if (globalZona) params.append('zona', globalZona)
       if (globalBase) params.append('base', globalBase)
+      if (globalMes) params.append('mes', globalMes)
+      if (globalAnio) params.append('anio', globalAnio)
       if (inspector) params.append('inspector', inspector)
       if (dateRange.from) params.append('fecha_desde', dateRange.from.toISOString().split('T')[0])
       if (dateRange.to) params.append('fecha_hasta', dateRange.to.toISOString().split('T')[0])
@@ -166,7 +200,7 @@ export default function InformeNNCCPage() {
     } catch (error) {
       console.error('Error fetching data:', error)
     }
-  }, [page, searchTerm, globalZona, globalBase, inspector, dateRange])
+  }, [page, searchTerm, globalZona, globalBase, globalMes, globalAnio, inspector, dateRange])
 
   const fetchZonas = useCallback(async () => {
     try {
@@ -198,11 +232,11 @@ export default function InformeNNCCPage() {
   useEffect(() => {
     const loadInitialData = async () => {
       setLoading(true)
-      await Promise.all([fetchZonas(), fetchBases(), fetchInspectors()])
+      await Promise.all([fetchZonas(), fetchBases(), fetchInspectors(), fetchPeriodos()])
       setLoading(false)
     }
     loadInitialData()
-  }, [fetchZonas, fetchBases, fetchInspectors])
+  }, [fetchZonas, fetchBases, fetchInspectors, fetchPeriodos])
 
   useEffect(() => {
     fetchStats()
@@ -243,6 +277,35 @@ export default function InformeNNCCPage() {
   const clearGlobalFilters = () => {
     setGlobalZona('')
     setGlobalBase('')
+    setGlobalMes('')
+    setGlobalAnio('')
+  }
+
+  const hasActiveFilters = Boolean(globalZona || globalBase || globalMes || globalAnio || inspector || searchTerm || dateRange.from || dateRange.to)
+
+  const handleExport = async (format: 'csv' | 'excel') => {
+    try {
+      setExportFormat(format)
+      setExporting(true)
+      const params: Record<string, string | undefined> = {
+        format,
+        zona: globalZona || undefined,
+        base: globalBase || undefined,
+        mes: globalMes || undefined,
+        anio: globalAnio || undefined,
+        inspector: inspector || undefined,
+        search: searchTerm || undefined,
+        fecha_desde: dateRange.from ? dateRange.from.toISOString().split('T')[0] : undefined,
+        fecha_hasta: dateRange.to ? dateRange.to.toISOString().split('T')[0] : undefined,
+      }
+      const filename = format === 'excel' ? 'informe_nncc.xlsx' : 'informe_nncc.csv'
+      await api.downloadFile('/api/v1/nuevas-conexiones/export', filename, params)
+    } catch (error) {
+      console.error('Error exporting:', error)
+      alert('Error al exportar los datos')
+    } finally {
+      setExporting(false)
+    }
   }
 
   const zonaChartData = stats ? Object.entries(stats.por_zona).map(([name, value]) => ({
@@ -325,14 +388,6 @@ export default function InformeNNCCPage() {
     'Meta': META_EFECTIVIDAD,
   })) || []
 
-  const formatCLP = (value: number) => {
-    return new Intl.NumberFormat('es-CL', {
-      style: 'currency',
-      currency: 'CLP',
-      minimumFractionDigits: 0
-    }).format(value)
-  }
-
   const calcPercentage = (value: number, total: number) => {
     if (!total) return 0
     return ((value / total) * 100).toFixed(1)
@@ -351,6 +406,12 @@ export default function InformeNNCCPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <ExportOverlay
+        isVisible={exporting}
+        format={exportFormat}
+        recordCount={hasActiveFilters ? data?.total : stats?.total}
+        hasFilters={hasActiveFilters}
+      />
       <Header
         title="Informe NNCC"
         subtitle="Control de Inspecciones de Cumplimiento"
@@ -381,7 +442,22 @@ export default function InformeNNCCPage() {
                   ))}
                 </Select>
               </div>
-              {(globalZona || globalBase) && (
+              <div className="flex items-center gap-3 ml-4 pl-4 border-l-2 border-gray-300 bg-white rounded-r-lg py-2 pr-4">
+                <span className="text-xs text-gray-600 font-medium whitespace-nowrap">Periodo:</span>
+                <Select value={globalAnio} onValueChange={setGlobalAnio} placeholder="Año" className="w-32">
+                  <SelectItem value="">Año</SelectItem>
+                  {periodos.anios.map(a => (
+                    <SelectItem key={a} value={String(a)}>{a}</SelectItem>
+                  ))}
+                </Select>
+                <Select value={globalMes} onValueChange={setGlobalMes} placeholder="Mes" className="w-40">
+                  <SelectItem value="">Mes</SelectItem>
+                  {MESES.filter(m => periodos.meses.includes(m.value)).map(m => (
+                    <SelectItem key={m.value} value={String(m.value)}>{m.label}</SelectItem>
+                  ))}
+                </Select>
+              </div>
+              {(globalZona || globalBase || globalMes || globalAnio) && (
                 <button
                   onClick={clearGlobalFilters}
                   className="text-sm text-oca-blue hover:text-oca-blue-dark"
@@ -401,7 +477,7 @@ export default function InformeNNCCPage() {
         </div>
 
         {/* KPIs - Resumen minimalista */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
           <div className="bg-white rounded-lg p-4 shadow-sm">
             <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Total</p>
             <p className="text-2xl font-semibold text-gray-900 mt-1">{formatNumber(stats?.total || 0)}</p>
@@ -431,23 +507,18 @@ export default function InformeNNCCPage() {
             <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Con Multa</p>
             <p className="text-2xl font-semibold text-red-600 mt-1">{formatNumber(stats?.con_multa || 0)}</p>
           </div>
-
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Monto Est.</p>
-            <p className="text-xl font-semibold text-gray-900 mt-1">{formatCLP(stats?.monto_estimado || 0)}</p>
-          </div>
         </div>
 
         {/* Tabs */}
         <TabGroup>
           <TabList className="mb-4">
-            <Tab icon={Users}>Vista Cliente</Tab>
-            <Tab icon={BarChart3}>Vista Interna</Tab>
-            <Tab icon={AlertCircle}>Insights</Tab>
+            <Tab icon={Users}>Resumen Ejecutivo</Tab>
+            <Tab icon={BarChart3}>Análisis Territorial</Tab>
+            <Tab icon={TrendingUp}>Tendencias</Tab>
             <Tab icon={Building}>Datos</Tab>
           </TabList>
           <TabPanels>
-            {/* Vista Cliente Panel */}
+            {/* Resumen Ejecutivo Panel */}
             <TabPanel>
               {/* Primera fila: Efectividad OCA y Calidad del Trabajo */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
@@ -704,70 +775,22 @@ export default function InformeNNCCPage() {
                 </Card>
               </div>
 
-              {/* Tercera fila: Estado Empalme y Resumen */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+              {/* Tercera fila: Estado Empalme */}
+              <div className="grid grid-cols-1 gap-6 mb-6">
                 {/* Estado Empalme */}
                 <Card>
                   <Title>Estado del Empalme</Title>
-                  <Text className="text-gray-500">Condicion del empalme al momento de inspeccion</Text>
+                  <Text className="text-gray-500">Condición del empalme al momento de inspección</Text>
                   <BarChart
-                    className="mt-4 h-64"
+                    className="mt-4 h-48"
                     data={estadoEmpalmeData}
                     index="name"
                     categories={['value']}
                     colors={['blue']}
                     valueFormatter={(v) => formatNumber(v)}
-                    layout="vertical"
-                    yAxisWidth={150}
+                    yAxisWidth={48}
                     showAnimation
                   />
-                </Card>
-
-                {/* Top 5 Comunas Problemáticas */}
-                <Card>
-                  <Title>Top 5 Comunas con Mayor Incidencia</Title>
-                  <Text className="text-gray-500">Comunas con mas problemas de ejecucion, conformidad y normativa</Text>
-                  <div className="mt-4 space-y-3">
-                    {stats?.top_comunas_problemas && stats.top_comunas_problemas.length > 0 ? (
-                      stats.top_comunas_problemas.map((comuna, idx) => (
-                        <div key={comuna.comuna} className="p-3 bg-gray-50 rounded-lg">
-                          <Flex justifyContent="between" alignItems="start">
-                            <div className="flex items-start gap-3">
-                              <span className={`flex items-center justify-center w-6 h-6 rounded-full text-sm font-bold ${
-                                idx === 0 ? 'bg-rose-100 text-rose-600' :
-                                idx === 1 ? 'bg-amber-100 text-amber-600' :
-                                'bg-gray-200 text-gray-600'
-                              }`}>{idx + 1}</span>
-                              <div>
-                                <p className="text-sm font-semibold text-gray-800">{comuna.comuna}</p>
-                                <p className="text-xs text-gray-500 mt-1">{formatNumber(comuna.total)} inspecciones</p>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-lg font-bold text-rose-600">{comuna.tasa_mal_ejecutado}%</p>
-                              <p className="text-xs text-gray-400">mal ejecutado</p>
-                            </div>
-                          </Flex>
-                          <div className="mt-2 flex gap-3 text-xs">
-                            <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded">
-                              {comuna.mal_ejecutados} mal ejec.
-                            </span>
-                            <span className="px-2 py-1 bg-rose-100 text-rose-700 rounded">
-                              {comuna.disconformes} disconf.
-                            </span>
-                            <span className="px-2 py-1 bg-violet-100 text-violet-700 rounded">
-                              {comuna.no_cumple_norma} no cumple
-                            </span>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-center py-6 text-gray-400">
-                        <AlertCircle size={24} className="mx-auto mb-2" />
-                        <p className="text-sm">No hay datos suficientes</p>
-                      </div>
-                    )}
-                  </div>
                 </Card>
               </div>
 
@@ -815,12 +838,12 @@ export default function InformeNNCCPage() {
               )}
             </TabPanel>
 
-            {/* Vista Interna Panel */}
+            {/* Análisis Territorial Panel */}
             <TabPanel>
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-                {/* Estadisticas por zona */}
+                {/* Distribución por zona */}
                 <Card>
-                  <Title>Distribucion por Zona</Title>
+                  <Title>Distribución por Zona</Title>
                   <DonutChart
                     className="mt-4 h-48"
                     data={zonaChartData}
@@ -842,7 +865,7 @@ export default function InformeNNCCPage() {
 
                 {/* Inspecciones por mes */}
                 <Card className="lg:col-span-2">
-                  <Title>Inspecciones por Mes</Title>
+                  <Title>Volumen de Inspecciones por Mes</Title>
                   <BarChart
                     className="mt-4 h-64"
                     data={mensualChartData}
@@ -856,53 +879,58 @@ export default function InformeNNCCPage() {
                 </Card>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                {/* Top Inspectores */}
-                <Card>
-                  <Title>Top 10 Inspectores</Title>
-                  <Text className="text-gray-500">Por cantidad de inspecciones</Text>
-                  <BarChart
-                    className="mt-4 h-80"
-                    data={inspectorChartData}
-                    index="inspector"
-                    categories={['cantidad']}
-                    colors={['blue']}
-                    valueFormatter={(v) => formatNumber(v)}
-                    layout="vertical"
-                    yAxisWidth={120}
-                    showAnimation
-                  />
-                </Card>
-
-                {/* Efectividad por Inspector */}
-                <Card>
-                  <Title>Efectividad por Inspector</Title>
-                  <div className="mt-4 space-y-3">
-                    {inspectorChartData.map((insp) => (
-                      <div key={insp.inspector}>
-                        <Flex justifyContent="between" className="mb-1">
-                          <Text className="text-sm truncate max-w-[180px]">{insp.inspector}</Text>
-                          <div className="flex items-center gap-3">
-                            <Text className="text-xs text-gray-400">{formatNumber(insp.cantidad)}</Text>
-                            <span className={`text-sm font-medium ${insp.efectividad >= META_EFECTIVIDAD ? 'text-emerald-600' : 'text-amber-600'}`}>
-                              {insp.efectividad}%
-                            </span>
+              {/* Top 5 Comunas Problemáticas - Movido desde Vista Cliente */}
+              <Card className="mb-6">
+                <Title>Comunas con Mayor Incidencia de Problemas</Title>
+                <Text className="text-gray-500">Comunas con más problemas de ejecución, conformidad y normativa</Text>
+                <div className="mt-4 grid grid-cols-1 lg:grid-cols-5 gap-4">
+                  {stats?.top_comunas_problemas && stats.top_comunas_problemas.length > 0 ? (
+                    stats.top_comunas_problemas.map((comuna, idx) => (
+                      <div key={comuna.comuna} className="p-4 bg-gray-50 rounded-lg border-l-4 border-l-rose-400">
+                        <div className="flex items-start gap-2 mb-3">
+                          <span className={`flex items-center justify-center w-6 h-6 rounded-full text-sm font-bold ${
+                            idx === 0 ? 'bg-rose-100 text-rose-600' :
+                            idx === 1 ? 'bg-amber-100 text-amber-600' :
+                            'bg-gray-200 text-gray-600'
+                          }`}>{idx + 1}</span>
+                          <div>
+                            <p className="text-sm font-semibold text-gray-800">{comuna.comuna}</p>
+                            <p className="text-xs text-gray-500">{formatNumber(comuna.total)} insp.</p>
                           </div>
-                        </Flex>
-                        <ProgressBar
-                          value={insp.efectividad}
-                          color={insp.efectividad >= META_EFECTIVIDAD ? 'emerald' : 'amber'}
-                        />
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-500">Mal ejecutados</span>
+                            <span className="font-medium text-amber-600">{comuna.mal_ejecutados}</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-500">Disconformes</span>
+                            <span className="font-medium text-rose-600">{comuna.disconformes}</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-500">No cumple norma</span>
+                            <span className="font-medium text-violet-600">{comuna.no_cumple_norma}</span>
+                          </div>
+                          <div className="pt-2 border-t mt-2">
+                            <p className="text-lg font-bold text-rose-600">{comuna.tasa_mal_ejecutado}%</p>
+                            <p className="text-xs text-gray-400">tasa mal ejecutado</p>
+                          </div>
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                </Card>
-              </div>
+                    ))
+                  ) : (
+                    <div className="col-span-5 text-center py-6 text-gray-400">
+                      <AlertCircle size={24} className="mx-auto mb-2" />
+                      <p className="text-sm">No hay datos suficientes</p>
+                    </div>
+                  )}
+                </div>
+              </Card>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Tendencia Efectividad */}
+                {/* Tendencia Efectividad por Zona */}
                 <Card>
-                  <Title>Tendencia Efectividad</Title>
+                  <Title>Tendencia de Efectividad</Title>
                   <Text className="text-gray-500">Meta: {META_EFECTIVIDAD}%</Text>
                   <AreaChart
                     className="mt-4 h-48"
@@ -916,66 +944,42 @@ export default function InformeNNCCPage() {
                   />
                 </Card>
 
-                {/* Resumen Montos */}
+                {/* Calidad del Contratista - Multas */}
                 <Card>
-                  <Title>Resumen Financiero</Title>
+                  <Title>Calidad del Contratista</Title>
+                  <Text className="text-gray-500">Multas aplicadas por incumplimiento</Text>
                   <div className="mt-6 space-y-6">
-                    <div>
-                      <Text className="text-sm text-gray-500">Monto Total Estimado</Text>
-                      <p className="text-3xl font-semibold text-gray-900 mt-1">{formatCLP(stats?.monto_estimado || 0)}</p>
-                    </div>
                     <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <Text className="text-sm text-gray-500">Inspecciones c/Multa</Text>
-                        <p className="text-xl font-semibold text-red-600 mt-1">{formatNumber(stats?.con_multa || 0)}</p>
+                      <div className="p-4 bg-red-50 rounded-lg text-center">
+                        <p className="text-2xl font-bold text-red-600">{formatNumber(stats?.con_multa || 0)}</p>
+                        <Text className="text-sm text-gray-600 mt-1">Con Multa</Text>
+                        <p className="text-xs text-gray-400 mt-1">
+                          {stats?.total ? ((stats.con_multa / stats.total) * 100).toFixed(1) : 0}% del total
+                        </p>
                       </div>
-                      <div>
-                        <Text className="text-sm text-gray-500">Pendientes Normalizar</Text>
-                        <p className="text-xl font-semibold text-orange-600 mt-1">{formatNumber(stats?.pendientes_normalizar || 0)}</p>
+                      <div className="p-4 bg-orange-50 rounded-lg text-center">
+                        <p className="text-2xl font-bold text-orange-600">{formatNumber(stats?.pendientes_normalizar || 0)}</p>
+                        <Text className="text-sm text-gray-600 mt-1">Pendientes Normalizar</Text>
                       </div>
                     </div>
                     <div>
-                      <Flex justifyContent="between" className="mb-1">
-                        <Text className="text-sm">Tasa Sin Multa</Text>
-                        <Text className="text-sm font-medium">{stats ? (100 - (stats.con_multa / stats.total) * 100).toFixed(1) : 0}%</Text>
+                      <Flex justifyContent="between" className="mb-2">
+                        <Text className="text-sm font-medium">Tasa de Cumplimiento (Sin Multa)</Text>
+                        <Text className="text-sm font-semibold text-emerald-600">
+                          {stats ? (100 - (stats.con_multa / stats.total) * 100).toFixed(1) : 0}%
+                        </Text>
                       </Flex>
-                      <ProgressBar value={stats ? 100 - (stats.con_multa / stats.total) * 100 : 0} color="slate" />
+                      <ProgressBar
+                        value={stats ? 100 - (stats.con_multa / stats.total) * 100 : 0}
+                        color="emerald"
+                      />
                     </div>
                   </div>
                 </Card>
               </div>
-
-              {/* Tabla Inspectores */}
-              <Card className="mt-6">
-                <Title>Todos los Inspectores</Title>
-                <Table className="mt-4">
-                  <TableHead>
-                    <TableRow>
-                      <TableHeaderCell>#</TableHeaderCell>
-                      <TableHeaderCell>Inspector</TableHeaderCell>
-                      <TableHeaderCell className="text-right">Cantidad</TableHeaderCell>
-                      <TableHeaderCell className="text-right">Efectividad</TableHeaderCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {inspectors.slice(0, 15).map((insp, i) => (
-                      <TableRow key={insp.inspector}>
-                        <TableCell className="text-gray-400">{i + 1}</TableCell>
-                        <TableCell>{insp.inspector}</TableCell>
-                        <TableCell className="text-right">{formatNumber(insp.cantidad)}</TableCell>
-                        <TableCell className="text-right">
-                          <span className={insp.efectividad >= META_EFECTIVIDAD ? 'text-emerald-600' : 'text-amber-600'}>
-                            {insp.efectividad}%
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Card>
             </TabPanel>
 
-            {/* Insights Panel */}
+            {/* Tendencias Panel */}
             <TabPanel>
               <Card>
                   <Title>Comparativa Mes Actual vs Anterior</Title>
@@ -1103,60 +1107,6 @@ export default function InformeNNCCPage() {
                   </div>
                 </Card>
 
-              {/* Top Comunas Problemáticas */}
-              <Card className="mt-6">
-                <Title>Comunas que Requieren Atencion</Title>
-                <Text className="text-gray-500">Top 5 comunas con mayor indice de problemas (mal ejecutados, disconformes, no cumple norma)</Text>
-                <div className="mt-6">
-                  {stats?.top_comunas_problemas && stats.top_comunas_problemas.length > 0 ? (
-                    <Table>
-                      <TableHead>
-                        <TableRow>
-                          <TableHeaderCell>#</TableHeaderCell>
-                          <TableHeaderCell>Comuna</TableHeaderCell>
-                          <TableHeaderCell className="text-right">Total Insp.</TableHeaderCell>
-                          <TableHeaderCell className="text-right">Mal Ejecutados</TableHeaderCell>
-                          <TableHeaderCell className="text-right">% Mal Ejec.</TableHeaderCell>
-                          <TableHeaderCell className="text-right">Disconformes</TableHeaderCell>
-                          <TableHeaderCell className="text-right">No Cumple Norma</TableHeaderCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {stats.top_comunas_problemas.map((comuna, idx) => (
-                          <TableRow key={comuna.comuna}>
-                            <TableCell>
-                              <span className={`flex items-center justify-center w-6 h-6 rounded-full text-sm font-bold ${
-                                idx === 0 ? 'bg-rose-100 text-rose-600' :
-                                idx === 1 ? 'bg-amber-100 text-amber-600' :
-                                'bg-gray-100 text-gray-600'
-                              }`}>{idx + 1}</span>
-                            </TableCell>
-                            <TableCell className="font-medium">{comuna.comuna}</TableCell>
-                            <TableCell className="text-right">{formatNumber(comuna.total)}</TableCell>
-                            <TableCell className="text-right text-amber-600 font-medium">{formatNumber(comuna.mal_ejecutados)}</TableCell>
-                            <TableCell className="text-right">
-                              <span className={`px-2 py-1 rounded text-sm font-medium ${
-                                comuna.tasa_mal_ejecutado >= 30 ? 'bg-rose-100 text-rose-700' :
-                                comuna.tasa_mal_ejecutado >= 15 ? 'bg-amber-100 text-amber-700' :
-                                'bg-gray-100 text-gray-700'
-                              }`}>
-                                {comuna.tasa_mal_ejecutado}%
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-right text-rose-600 font-medium">{formatNumber(comuna.disconformes)}</TableCell>
-                            <TableCell className="text-right text-violet-600 font-medium">{formatNumber(comuna.no_cumple_norma)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  ) : (
-                    <div className="text-center py-8 text-gray-400">
-                      <CheckCircle size={32} className="mx-auto mb-3 text-emerald-400" />
-                      <p className="text-sm">No hay datos suficientes para analisis</p>
-                    </div>
-                  )}
-                </div>
-              </Card>
             </TabPanel>
 
             {/* Datos Panel */}
@@ -1194,10 +1144,13 @@ export default function InformeNNCCPage() {
                       <Filter size={14} />
                       Limpiar
                     </Button>
-                    <Button variant="secondary" size="sm">
-                      <Download size={14} />
-                      Exportar
-                    </Button>
+                    <ExportDropdown
+                      onExport={handleExport}
+                      loading={exporting}
+                      loadingFormat={exporting ? exportFormat : null}
+                      totalRecords={data?.total}
+                      hasFilters={hasActiveFilters}
+                    />
                   </div>
                 </Flex>
               </Card>

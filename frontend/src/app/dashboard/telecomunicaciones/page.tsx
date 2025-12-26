@@ -28,8 +28,10 @@ import {
   TabPanels,
   ProgressBar,
 } from '@tremor/react'
-import { Download, Search, Filter, CheckCircle, XCircle, TrendingUp, TrendingDown, Info, AlertCircle, Building2, Users, MapPin, FileCheck } from 'lucide-react'
+import { Search, Filter, CheckCircle, XCircle, TrendingUp, TrendingDown, Info, AlertCircle, Building2, Users, MapPin, FileCheck } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { ExportOverlay } from '@/components/ui/ExportOverlay'
+import { ExportDropdown } from '@/components/ui/ExportDropdown'
 import { formatNumber } from '@/lib/utils'
 import { api } from '@/lib/api'
 
@@ -49,6 +51,7 @@ interface Stats {
   por_resultado: Record<string, number>
   por_mes: Array<{ mes: string; cantidad: number; aprobados: number; tasa_aprobacion: number }>
   por_tiene_plano: Array<{ tipo: string; cantidad: number }>
+  motivos_rechazo: Array<{ motivo: string; cantidad: number; porcentaje: number }>
   evolucion_mensual: Array<{ periodo: string; casos: number; postes: number; aprobados: number }>
   comparativas: {
     aprobacion: { actual: number; anterior: number; diferencia: number }
@@ -81,10 +84,28 @@ interface PaginatedResponse {
 
 const META_APROBACION = 50
 
+const MESES = [
+  { value: 1, label: 'Enero' },
+  { value: 2, label: 'Febrero' },
+  { value: 3, label: 'Marzo' },
+  { value: 4, label: 'Abril' },
+  { value: 5, label: 'Mayo' },
+  { value: 6, label: 'Junio' },
+  { value: 7, label: 'Julio' },
+  { value: 8, label: 'Agosto' },
+  { value: 9, label: 'Septiembre' },
+  { value: 10, label: 'Octubre' },
+  { value: 11, label: 'Noviembre' },
+  { value: 12, label: 'Diciembre' },
+]
+
 export default function TelecomunicacionesPage() {
   // Global filters
   const [globalEmpresa, setGlobalEmpresa] = useState('')
   const [globalComuna, setGlobalComuna] = useState('')
+  const [globalMes, setGlobalMes] = useState('')
+  const [globalAnio, setGlobalAnio] = useState('')
+  const [periodos, setPeriodos] = useState<{ meses: number[]; anios: number[] }>({ meses: [], anios: [] })
 
   // Table filters
   const [dateRange, setDateRange] = useState<DateRangePickerValue>({})
@@ -100,12 +121,25 @@ export default function TelecomunicacionesPage() {
   const [comunas, setComunas] = useState<string[]>([])
   const [inspectors, setInspectors] = useState<Array<{ inspector: string; cantidad: number; tasa_aprobacion: number; postes: number }>>([])
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
+  const [exportFormat, setExportFormat] = useState<'excel' | 'csv'>('excel')
+
+  const fetchPeriodos = useCallback(async () => {
+    try {
+      const response = await api.get<{ meses: number[]; anios: number[] }>('/api/v1/teleco/periodos')
+      setPeriodos(response)
+    } catch (error) {
+      console.error('Error fetching periodos:', error)
+    }
+  }, [])
 
   const fetchStats = useCallback(async () => {
     try {
       const params = new URLSearchParams()
       if (globalEmpresa) params.append('empresa', globalEmpresa)
       if (globalComuna) params.append('comuna', globalComuna)
+      if (globalMes) params.append('mes', globalMes)
+      if (globalAnio) params.append('anio', globalAnio)
 
       const url = `/api/v1/teleco/stats${params.toString() ? '?' + params.toString() : ''}`
       const response = await api.get<Stats>(url)
@@ -113,7 +147,7 @@ export default function TelecomunicacionesPage() {
     } catch (error) {
       console.error('Error fetching stats:', error)
     }
-  }, [globalEmpresa, globalComuna])
+  }, [globalEmpresa, globalComuna, globalMes, globalAnio])
 
   const fetchData = useCallback(async () => {
     try {
@@ -123,6 +157,8 @@ export default function TelecomunicacionesPage() {
       if (searchTerm) params.append('search', searchTerm)
       if (globalEmpresa) params.append('empresa', globalEmpresa)
       if (globalComuna) params.append('comuna', globalComuna)
+      if (globalMes) params.append('mes', globalMes)
+      if (globalAnio) params.append('anio', globalAnio)
       if (resultado) params.append('resultado', resultado)
       if (tienePlano) params.append('tiene_plano', tienePlano)
       if (dateRange.from) params.append('fecha_desde', dateRange.from.toISOString().split('T')[0])
@@ -133,7 +169,7 @@ export default function TelecomunicacionesPage() {
     } catch (error) {
       console.error('Error fetching data:', error)
     }
-  }, [page, searchTerm, globalEmpresa, globalComuna, resultado, tienePlano, dateRange])
+  }, [page, searchTerm, globalEmpresa, globalComuna, globalMes, globalAnio, resultado, tienePlano, dateRange])
 
   const fetchEmpresas = useCallback(async () => {
     try {
@@ -165,11 +201,11 @@ export default function TelecomunicacionesPage() {
   useEffect(() => {
     const loadInitialData = async () => {
       setLoading(true)
-      await Promise.all([fetchEmpresas(), fetchComunas(), fetchInspectors()])
+      await Promise.all([fetchEmpresas(), fetchComunas(), fetchInspectors(), fetchPeriodos()])
       setLoading(false)
     }
     loadInitialData()
-  }, [fetchEmpresas, fetchComunas, fetchInspectors])
+  }, [fetchEmpresas, fetchComunas, fetchInspectors, fetchPeriodos])
 
   useEffect(() => {
     fetchStats()
@@ -216,6 +252,36 @@ export default function TelecomunicacionesPage() {
   const clearGlobalFilters = () => {
     setGlobalEmpresa('')
     setGlobalComuna('')
+    setGlobalMes('')
+    setGlobalAnio('')
+  }
+
+  const hasActiveFilters = Boolean(globalEmpresa || globalComuna || globalMes || globalAnio || resultado || tienePlano || searchTerm || dateRange.from || dateRange.to)
+
+  const handleExport = async (format: 'csv' | 'excel') => {
+    try {
+      setExportFormat(format)
+      setExporting(true)
+      const params: Record<string, string | undefined> = {
+        format,
+        empresa: globalEmpresa || undefined,
+        comuna: globalComuna || undefined,
+        mes: globalMes || undefined,
+        anio: globalAnio || undefined,
+        resultado: resultado || undefined,
+        tiene_plano: tienePlano || undefined,
+        search: searchTerm || undefined,
+        fecha_desde: dateRange.from ? dateRange.from.toISOString().split('T')[0] : undefined,
+        fecha_hasta: dateRange.to ? dateRange.to.toISOString().split('T')[0] : undefined,
+      }
+      const filename = format === 'excel' ? 'telecomunicaciones.xlsx' : 'telecomunicaciones.csv'
+      await api.downloadFile('/api/v1/teleco/export', filename, params)
+    } catch (error) {
+      console.error('Error exporting:', error)
+      alert('Error al exportar los datos')
+    } finally {
+      setExporting(false)
+    }
   }
 
   // Chart data
@@ -280,6 +346,12 @@ export default function TelecomunicacionesPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <ExportOverlay
+        isVisible={exporting}
+        format={exportFormat}
+        recordCount={hasActiveFilters ? data?.total : stats?.total}
+        hasFilters={hasActiveFilters}
+      />
       <Header
         title="Telecomunicaciones"
         subtitle="Inspecciones de Factibilidad en Postes"
@@ -310,7 +382,22 @@ export default function TelecomunicacionesPage() {
                   ))}
                 </Select>
               </div>
-              {(globalEmpresa || globalComuna) && (
+              <div className="flex items-center gap-3 ml-4 pl-4 border-l-2 border-gray-300 bg-white rounded-r-lg py-2 pr-4">
+                <span className="text-xs text-gray-600 font-medium whitespace-nowrap">Periodo:</span>
+                <Select value={globalAnio} onValueChange={setGlobalAnio} placeholder="Año" className="w-32">
+                  <SelectItem value="">Año</SelectItem>
+                  {periodos.anios.map(a => (
+                    <SelectItem key={a} value={String(a)}>{a}</SelectItem>
+                  ))}
+                </Select>
+                <Select value={globalMes} onValueChange={setGlobalMes} placeholder="Mes" className="w-40">
+                  <SelectItem value="">Mes</SelectItem>
+                  {MESES.filter(m => periodos.meses.includes(m.value)).map(m => (
+                    <SelectItem key={m.value} value={String(m.value)}>{m.label}</SelectItem>
+                  ))}
+                </Select>
+              </div>
+              {(globalEmpresa || globalComuna || globalMes || globalAnio) && (
                 <button
                   onClick={clearGlobalFilters}
                   className="text-sm text-oca-blue hover:text-oca-blue-dark"
@@ -367,14 +454,13 @@ export default function TelecomunicacionesPage() {
         {/* Tabs */}
         <TabGroup>
           <TabList className="mb-4">
-            <Tab icon={Building2}>Empresas</Tab>
-            <Tab icon={MapPin}>Comunas</Tab>
-            <Tab icon={Users}>Inspectores</Tab>
-            <Tab icon={AlertCircle}>Insights</Tab>
+            <Tab icon={Building2}>Resumen Ejecutivo</Tab>
+            <Tab icon={MapPin}>Análisis Territorial</Tab>
+            <Tab icon={TrendingUp}>Tendencias</Tab>
             <Tab icon={Search}>Datos</Tab>
           </TabList>
           <TabPanels>
-            {/* Empresas Panel */}
+            {/* Resumen Ejecutivo Panel */}
             <TabPanel>
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
                 {/* Resultado Global */}
@@ -486,7 +572,7 @@ export default function TelecomunicacionesPage() {
               </Card>
             </TabPanel>
 
-            {/* Comunas Panel */}
+            {/* Análisis Territorial Panel */}
             <TabPanel>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                 {/* Top Comunas */}
@@ -548,53 +634,7 @@ export default function TelecomunicacionesPage() {
               </Card>
             </TabPanel>
 
-            {/* Inspectores Panel */}
-            <TabPanel>
-              <div className="grid grid-cols-1 gap-6">
-                <Card>
-                  <Title>Rendimiento de Inspectores</Title>
-                  <Text className="text-gray-500">Estadisticas por inspector</Text>
-                  <Table className="mt-4">
-                    <TableHead>
-                      <TableRow>
-                        <TableHeaderCell>Inspector</TableHeaderCell>
-                        <TableHeaderCell className="text-right">Casos</TableHeaderCell>
-                        <TableHeaderCell className="text-right">Aprobados</TableHeaderCell>
-                        <TableHeaderCell className="text-right">Tasa Aprob.</TableHeaderCell>
-                        <TableHeaderCell className="text-right">Postes Evaluados</TableHeaderCell>
-                        <TableHeaderCell>Rendimiento</TableHeaderCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {inspectorChartData.map((insp) => (
-                        <TableRow key={insp.inspector}>
-                          <TableCell className="font-medium">{insp.inspector}</TableCell>
-                          <TableCell className="text-right">{formatNumber(insp.cantidad)}</TableCell>
-                          <TableCell className="text-right text-emerald-600">
-                            {formatNumber(Math.round(insp.cantidad * insp.tasa_aprobacion / 100))}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <span className={insp.tasa_aprobacion >= META_APROBACION ? 'text-emerald-600' : 'text-amber-600'}>
-                              {insp.tasa_aprobacion}%
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right">{formatNumber(insp.postes)}</TableCell>
-                          <TableCell>
-                            <ProgressBar
-                              value={insp.tasa_aprobacion}
-                              color={insp.tasa_aprobacion >= META_APROBACION ? 'emerald' : 'amber'}
-                              className="w-24"
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </Card>
-              </div>
-            </TabPanel>
-
-            {/* Insights Panel */}
+            {/* Tendencias Panel */}
             <TabPanel>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {stats?.insights.map((insight, index) => (
@@ -625,9 +665,44 @@ export default function TelecomunicacionesPage() {
                 ))}
               </div>
 
+              {/* Motivos de Rechazo - CALIDAD */}
+              {stats?.motivos_rechazo && stats.motivos_rechazo.length > 0 && (
+                <Card className="mt-6">
+                  <Title>Motivos de Rechazo</Title>
+                  <Text className="text-gray-500">Análisis de causas del {stats?.rechazados || 0} proyectos rechazados ({((stats?.rechazados || 0) / (stats?.total || 1) * 100).toFixed(1)}%)</Text>
+                  <div className="mt-4">
+                    <BarChart
+                      className="h-64"
+                      data={stats.motivos_rechazo.map(m => ({
+                        name: m.motivo,
+                        Cantidad: m.cantidad,
+                      }))}
+                      index="name"
+                      categories={['Cantidad']}
+                      colors={['rose']}
+                      valueFormatter={(v) => formatNumber(v)}
+                      layout="vertical"
+                      yAxisWidth={180}
+                      showAnimation
+                    />
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {stats.motivos_rechazo.slice(0, 6).map((m, idx) => (
+                      <div key={m.motivo} className={`p-3 rounded-lg ${idx === 0 ? 'bg-rose-50 border-l-4 border-l-rose-500' : 'bg-gray-50'}`}>
+                        <p className="text-sm font-medium text-gray-800">{m.motivo}</p>
+                        <div className="flex justify-between mt-1">
+                          <span className="text-lg font-bold text-rose-600">{m.cantidad}</span>
+                          <span className="text-sm text-gray-500">{m.porcentaje}%</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+
               {/* Resumen de Metricas */}
               <Card className="mt-6">
-                <Title>Resumen de Metricas</Title>
+                <Title>Resumen de Métricas</Title>
                 <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="text-center p-4 bg-gray-50 rounded-lg">
                     <p className="text-3xl font-bold text-oca-blue">{formatNumber(stats?.total || 0)}</p>
@@ -635,15 +710,15 @@ export default function TelecomunicacionesPage() {
                   </div>
                   <div className="text-center p-4 bg-emerald-50 rounded-lg">
                     <p className="text-3xl font-bold text-emerald-600">{stats?.tasa_aprobacion || 0}%</p>
-                    <p className="text-sm text-gray-500 mt-1">Tasa Aprobacion</p>
+                    <p className="text-sm text-gray-500 mt-1">Tasa Aprobación</p>
+                  </div>
+                  <div className="text-center p-4 bg-rose-50 rounded-lg">
+                    <p className="text-3xl font-bold text-rose-600">{formatNumber(stats?.rechazados || 0)}</p>
+                    <p className="text-sm text-gray-500 mt-1">Rechazados</p>
                   </div>
                   <div className="text-center p-4 bg-blue-50 rounded-lg">
                     <p className="text-3xl font-bold text-blue-600">{formatNumber(stats?.total_postes || 0)}</p>
                     <p className="text-sm text-gray-500 mt-1">Postes Evaluados</p>
-                  </div>
-                  <div className="text-center p-4 bg-violet-50 rounded-lg">
-                    <p className="text-3xl font-bold text-violet-600">{stats?.por_empresa.length || 0}</p>
-                    <p className="text-sm text-gray-500 mt-1">Empresas</p>
                   </div>
                 </div>
               </Card>
@@ -687,10 +762,13 @@ export default function TelecomunicacionesPage() {
                   <Button variant="secondary" onClick={clearFilters}>
                     Limpiar
                   </Button>
-                  <Button variant="secondary" onClick={() => window.open(`/api/v1/teleco/export?format=excel`, '_blank')}>
-                    <Download size={16} className="mr-2" />
-                    Exportar
-                  </Button>
+                  <ExportDropdown
+                    onExport={handleExport}
+                    loading={exporting}
+                    loadingFormat={exporting ? exportFormat : null}
+                    totalRecords={data?.total}
+                    hasFilters={hasActiveFilters}
+                  />
                 </Flex>
               </Card>
 

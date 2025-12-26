@@ -16,7 +16,6 @@ import {
 import {
   ClipboardCheck,
   FileText,
-  Scissors,
   SearchX,
   TrendingUp,
   TrendingDown,
@@ -24,7 +23,6 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  AlertTriangle,
   BarChart3,
   ArrowRight,
   Radio,
@@ -41,7 +39,6 @@ interface DashboardSummary {
     bien_ejecutados: number
     mal_ejecutados: number
     con_multa: number
-    monto_estimado: number
     por_zona: Record<string, number>
     por_mes: Array<{ mes: string; cantidad: number; efectividad: number }>
     comparativas: {
@@ -87,7 +84,15 @@ interface DashboardSummary {
     activo: boolean
   }
   control_perdidas: {
-    total: number
+    total_solicitadas: number
+    total_ejecutadas: number
+    pendientes: number
+    tasa_ejecucion: number
+    monofasico: { solicitadas: number; ejecutadas: number; tasa: number }
+    trifasico: { solicitadas: number; ejecutadas: number; tasa: number }
+    por_resultado: Array<{ resultado: string; cantidad: number }>
+    por_contratista: Array<{ contratista: string; cantidad: number; tasa_normalidad: number }>
+    anomalias: { modelo_no_corresponde: number; medidor_no_corresponde: number; requiere_normalizacion: number; perno_no_normalizado: number }
     ultima_actualizacion: string | null
     activo: boolean
   }
@@ -121,14 +126,6 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchData()
   }, [fetchData])
-
-  const formatCLP = (value: number) => {
-    return new Intl.NumberFormat('es-CL', {
-      style: 'currency',
-      currency: 'CLP',
-      minimumFractionDigits: 0
-    }).format(value)
-  }
 
   // Chart data
   const nnccZonaData = data ? Object.entries(data.nncc.por_zona).map(([name, value]) => ({
@@ -204,19 +201,12 @@ export default function DashboardPage() {
           {/* NNCC Card */}
           <Card
             className="cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02]"
-            decoration="top"
-            decorationColor="blue"
             onClick={() => router.push('/dashboard/nuevas-conexiones')}
           >
-            <Flex alignItems="start" justifyContent="between">
-              <div>
-                <Text className="text-gray-500">Informe NNCC</Text>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{formatNumber(data?.nncc.total || 0)}</p>
-              </div>
-              <div className="rounded-lg p-2 bg-blue-100 text-blue-600">
-                <ClipboardCheck size={24} />
-              </div>
-            </Flex>
+            <div>
+              <Text className="text-gray-500">Informe NNCC</Text>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{formatNumber(data?.nncc.total || 0)}</p>
+            </div>
             <div className="mt-4 space-y-2">
               <Flex justifyContent="between">
                 <span className="text-xs text-gray-500">Efectivas</span>
@@ -256,19 +246,12 @@ export default function DashboardPage() {
           {/* Lecturas Card */}
           <Card
             className="cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02]"
-            decoration="top"
-            decorationColor="violet"
             onClick={() => router.push('/dashboard/lecturas')}
           >
-            <Flex alignItems="start" justifyContent="between">
-              <div>
-                <Text className="text-gray-500">Lecturas</Text>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{formatNumber(data?.lecturas.total || 0)}</p>
-              </div>
-              <div className="rounded-lg p-2 bg-violet-100 text-violet-600">
-                <FileText size={24} />
-              </div>
-            </Flex>
+            <div>
+              <Text className="text-gray-500">Lecturas</Text>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{formatNumber(data?.lecturas.total || 0)}</p>
+            </div>
             <div className="mt-4 space-y-2">
               <Flex justifyContent="between">
                 <span className="text-xs text-gray-500">Inspeccionadas</span>
@@ -308,19 +291,12 @@ export default function DashboardPage() {
           {/* Teleco Card */}
           <Card
             className="cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02]"
-            decoration="top"
-            decorationColor="amber"
             onClick={() => router.push('/dashboard/telecomunicaciones')}
           >
-            <Flex alignItems="start" justifyContent="between">
-              <div>
-                <Text className="text-gray-500">Telecom</Text>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{formatNumber(data?.teleco.total || 0)}</p>
-              </div>
-              <div className="rounded-lg p-2 bg-amber-100 text-amber-600">
-                <Radio size={24} />
-              </div>
-            </Flex>
+            <div>
+              <Text className="text-gray-500">Telecom</Text>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{formatNumber(data?.teleco.total || 0)}</p>
+            </div>
             <div className="mt-4 space-y-2">
               <Flex justifyContent="between">
                 <span className="text-xs text-gray-500">Aprobados</span>
@@ -360,18 +336,11 @@ export default function DashboardPage() {
           {/* Corte y Reposicion Card */}
           <Card
             className="opacity-60"
-            decoration="top"
-            decorationColor="gray"
           >
-            <Flex alignItems="start" justifyContent="between">
-              <div>
-                <Text className="text-gray-500">Corte y Reposicion</Text>
-                <p className="text-2xl font-bold text-gray-400 mt-1">-</p>
-              </div>
-              <div className="rounded-lg p-2 bg-gray-100 text-gray-400">
-                <Scissors size={24} />
-              </div>
-            </Flex>
+            <div>
+              <Text className="text-gray-500">Corte y Reposicion</Text>
+              <p className="text-2xl font-bold text-gray-400 mt-1">-</p>
+            </div>
             <div className="mt-4">
               <Text className="text-gray-400 text-sm">Proximamente</Text>
             </div>
@@ -379,22 +348,39 @@ export default function DashboardPage() {
 
           {/* Control Perdidas Card */}
           <Card
-            className="opacity-60"
-            decoration="top"
-            decorationColor="gray"
+            className={data?.control_perdidas.activo ? "cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02]" : "opacity-60"}
+            onClick={() => data?.control_perdidas.activo && router.push('/dashboard/control-perdidas')}
           >
-            <Flex alignItems="start" justifyContent="between">
-              <div>
-                <Text className="text-gray-500">Control Perdidas</Text>
-                <p className="text-2xl font-bold text-gray-400 mt-1">-</p>
-              </div>
-              <div className="rounded-lg p-2 bg-gray-100 text-gray-400">
-                <SearchX size={24} />
-              </div>
-            </Flex>
-            <div className="mt-4">
-              <Text className="text-gray-400 text-sm">Proximamente</Text>
+            <div>
+              <Text className="text-gray-500">Ctrl. Perdidas</Text>
+              <p className="text-2xl font-bold text-gray-900 mt-1">
+                {data?.control_perdidas.activo ? formatNumber(data?.control_perdidas.total_ejecutadas || 0) : '-'}
+              </p>
             </div>
+            {data?.control_perdidas.activo ? (
+              <>
+                <div className="mt-4 space-y-2">
+                  <Flex justifyContent="between">
+                    <span className="text-xs text-gray-500">Monofásico</span>
+                    <span className="text-xs font-medium text-blue-600">{formatNumber(data?.control_perdidas.monofasico?.ejecutadas || 0)}</span>
+                  </Flex>
+                  <Flex justifyContent="between">
+                    <span className="text-xs text-gray-500">Trifásico</span>
+                    <span className="text-xs font-medium text-purple-600">{formatNumber(data?.control_perdidas.trifasico?.ejecutadas || 0)}</span>
+                  </Flex>
+                </div>
+                {data?.control_perdidas.ultima_actualizacion && (
+                  <Flex className="mt-2" alignItems="center" justifyContent="end">
+                    <Calendar size={12} className="text-gray-400 mr-1" />
+                    <span className="text-[10px] text-gray-400">{data.control_perdidas.ultima_actualizacion}</span>
+                  </Flex>
+                )}
+              </>
+            ) : (
+              <div className="mt-4">
+                <Text className="text-gray-400 text-sm">Sin datos</Text>
+              </div>
+            )}
           </Card>
         </div>
 
@@ -444,10 +430,6 @@ export default function DashboardPage() {
                   <Flex justifyContent="between">
                     <Text className="text-sm text-gray-500">Con Multa</Text>
                     <Text className="text-sm font-medium text-red-600">{formatNumber(data?.nncc.con_multa || 0)}</Text>
-                  </Flex>
-                  <Flex justifyContent="between" className="mt-1">
-                    <Text className="text-sm text-gray-500">Monto Estimado</Text>
-                    <Text className="text-sm font-medium">{formatCLP(data?.nncc.monto_estimado || 0)}</Text>
                   </Flex>
                 </div>
               </div>
@@ -664,76 +646,103 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Estado de Modulos */}
-        <Card>
-          <Title>Estado de Modulos</Title>
-          <Text className="text-gray-500">Progreso de integracion de datos</Text>
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
-              <Flex justifyContent="between" alignItems="center">
-                <div className="flex items-center gap-2">
-                  <ClipboardCheck size={18} className="text-emerald-600" />
-                  <Text className="font-medium">Informe NNCC</Text>
-                </div>
-                <span className="px-2 py-1 bg-emerald-100 text-emerald-700 text-xs font-medium rounded">Activo</span>
-              </Flex>
-              <Text className="text-sm text-gray-500 mt-2">{formatNumber(data?.nncc.total || 0)} registros</Text>
-              {data?.nncc.ultima_actualizacion && (
-                <Text className="text-xs text-gray-400 mt-1">Actualizado: {data.nncc.ultima_actualizacion}</Text>
-              )}
-            </div>
+        {/* Control Perdidas Section - Solo si está activo */}
+        {data?.control_perdidas.activo && (
+          <div className="mb-6">
+            <Flex className="mb-4" alignItems="center" justifyContent="between">
+              <div className="flex items-center gap-2">
+                <SearchX size={20} className="text-orange-600" />
+                <Title>Control de Pérdidas</Title>
+              </div>
+              <button
+                onClick={() => router.push('/dashboard/control-perdidas')}
+                className="text-sm text-oca-blue hover:text-oca-blue-dark flex items-center gap-1"
+              >
+                Ver detalle <ArrowRight size={14} />
+              </button>
+            </Flex>
 
-            <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
-              <Flex justifyContent="between" alignItems="center">
-                <div className="flex items-center gap-2">
-                  <FileText size={18} className="text-emerald-600" />
-                  <Text className="font-medium">Lecturas</Text>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Control Perdidas KPIs */}
+              <Card>
+                <Title>Resumen Inspecciones</Title>
+                <div className="mt-4 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="text-center p-3 bg-blue-50 rounded-lg">
+                      <BarChart3 size={20} className="text-blue-500 mx-auto mb-1" />
+                      <p className="text-xl font-bold text-blue-600">{formatNumber(data?.control_perdidas.monofasico?.ejecutadas || 0)}</p>
+                      <p className="text-xs text-gray-600">Monofásico</p>
+                    </div>
+                    <div className="text-center p-3 bg-purple-50 rounded-lg">
+                      <BarChart3 size={20} className="text-purple-500 mx-auto mb-1" />
+                      <p className="text-xl font-bold text-purple-600">{formatNumber(data?.control_perdidas.trifasico?.ejecutadas || 0)}</p>
+                      <p className="text-xs text-gray-600">Trifásico</p>
+                    </div>
+                  </div>
+                  <div>
+                    <Flex justifyContent="between" className="mb-1">
+                      <Text className="text-sm">Tasa Ejecución</Text>
+                      <Text className="text-sm font-medium">{data?.control_perdidas.tasa_ejecucion || 0}%</Text>
+                    </Flex>
+                    <ProgressBar
+                      value={data?.control_perdidas.tasa_ejecucion || 0}
+                      color={data && data.control_perdidas.tasa_ejecucion >= 80 ? 'emerald' : 'amber'}
+                    />
+                  </div>
+                  <div className="pt-3 border-t">
+                    <Flex justifyContent="between">
+                      <Text className="text-sm text-gray-500">Solicitadas</Text>
+                      <Text className="text-sm font-medium">{formatNumber(data?.control_perdidas.total_solicitadas || 0)}</Text>
+                    </Flex>
+                    <Flex justifyContent="between" className="mt-1">
+                      <Text className="text-sm text-gray-500">Pendientes</Text>
+                      <Text className="text-sm font-medium text-amber-600">{formatNumber(data?.control_perdidas.pendientes || 0)}</Text>
+                    </Flex>
+                  </div>
                 </div>
-                <span className="px-2 py-1 bg-emerald-100 text-emerald-700 text-xs font-medium rounded">Activo</span>
-              </Flex>
-              <Text className="text-sm text-gray-500 mt-2">{formatNumber(data?.lecturas.total || 0)} registros</Text>
-              {data?.lecturas.ultima_actualizacion && (
-                <Text className="text-xs text-gray-400 mt-1">Actualizado: {data.lecturas.ultima_actualizacion}</Text>
-              )}
-            </div>
+              </Card>
 
-            <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
-              <Flex justifyContent="between" alignItems="center">
-                <div className="flex items-center gap-2">
-                  <Radio size={18} className="text-emerald-600" />
-                  <Text className="font-medium">Telecomunicaciones</Text>
-                </div>
-                <span className="px-2 py-1 bg-emerald-100 text-emerald-700 text-xs font-medium rounded">Activo</span>
-              </Flex>
-              <Text className="text-sm text-gray-500 mt-2">{formatNumber(data?.teleco.total || 0)} casos / {formatNumber(data?.teleco.total_postes || 0)} postes</Text>
-              {data?.teleco.ultima_actualizacion && (
-                <Text className="text-xs text-gray-400 mt-1">Actualizado: {data.teleco.ultima_actualizacion}</Text>
-              )}
-            </div>
+              {/* Por Resultado */}
+              <Card>
+                <Title>Por Resultado</Title>
+                <Text className="text-gray-500">Tipos de resultado encontrados</Text>
+                <BarChart
+                  className="mt-4 h-40"
+                  data={data?.control_perdidas.por_resultado?.slice(0, 5).map(r => ({
+                    name: r.resultado.length > 20 ? r.resultado.substring(0, 20) + '...' : r.resultado,
+                    value: r.cantidad
+                  })) || []}
+                  index="name"
+                  categories={['value']}
+                  colors={['orange']}
+                  valueFormatter={(v) => formatNumber(v)}
+                  layout="vertical"
+                  yAxisWidth={120}
+                  showAnimation
+                />
+              </Card>
 
-            <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <Flex justifyContent="between" alignItems="center">
-                <div className="flex items-center gap-2">
-                  <Scissors size={18} className="text-gray-400" />
-                  <Text className="font-medium text-gray-500">Corte y Reposicion</Text>
-                </div>
-                <span className="px-2 py-1 bg-gray-100 text-gray-500 text-xs font-medium rounded">Pendiente</span>
-              </Flex>
-              <Text className="text-sm text-gray-400 mt-2">Sin datos</Text>
-            </div>
-
-            <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <Flex justifyContent="between" alignItems="center">
-                <div className="flex items-center gap-2">
-                  <SearchX size={18} className="text-gray-400" />
-                  <Text className="font-medium text-gray-500">Control Perdidas</Text>
-                </div>
-                <span className="px-2 py-1 bg-gray-100 text-gray-500 text-xs font-medium rounded">Pendiente</span>
-              </Flex>
-              <Text className="text-sm text-gray-400 mt-2">Sin datos</Text>
+              {/* Por Contratista */}
+              <Card>
+                <Title>Por Contratista</Title>
+                <Text className="text-gray-500">Principales contratistas</Text>
+                <BarChart
+                  className="mt-4 h-40"
+                  data={data?.control_perdidas.por_contratista?.slice(0, 5).map(c => ({
+                    name: c.contratista.length > 15 ? c.contratista.substring(0, 15) + '...' : c.contratista,
+                    Cantidad: c.cantidad,
+                  })) || []}
+                  index="name"
+                  categories={['Cantidad']}
+                  colors={['amber']}
+                  valueFormatter={(v) => formatNumber(v)}
+                  showAnimation
+                />
+              </Card>
             </div>
           </div>
-        </Card>
+        )}
+
       </div>
     </div>
   )

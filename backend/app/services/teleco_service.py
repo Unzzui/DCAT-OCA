@@ -125,9 +125,11 @@ def load_teleco_data(force_reload: bool = False) -> pd.DataFrame:
     if 'fecha_asignacion' in df.columns and 'fecha_inspeccion' in df.columns:
         df['dias_inspeccion'] = (df['fecha_inspeccion'] - df['fecha_asignacion']).dt.days
 
-    # Agregar mes para agrupacion
+    # Agregar mes y año para agrupacion y filtrado
     if 'fecha_inspeccion' in df.columns:
-        df['mes'] = df['fecha_inspeccion'].dt.to_period('M').astype(str)
+        df['mes_periodo'] = df['fecha_inspeccion'].dt.to_period('M').astype(str)
+        df['mes'] = df['fecha_inspeccion'].dt.month
+        df['anio'] = df['fecha_inspeccion'].dt.year
 
     _df_teleco_cache = df
     print(f"Total Teleco loaded: {len(df)} records")
@@ -143,6 +145,8 @@ def get_teleco_filtered_data(
     tiene_plano: Optional[str] = None,
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None,
+    mes: Optional[int] = None,
+    anio: Optional[int] = None,
     page: int = 1,
     limit: int = 50,
     sort_by: str = "fecha_inspeccion",
@@ -192,6 +196,12 @@ def get_teleco_filtered_data(
     if fecha_hasta and 'fecha_inspeccion' in df.columns:
         mask &= df['fecha_inspeccion'] <= pd.to_datetime(fecha_hasta)
 
+    if mes and 'mes' in df.columns:
+        mask &= df['mes'] == mes
+
+    if anio and 'anio' in df.columns:
+        mask &= df['anio'] == anio
+
     filtered_df = df[mask].copy()
 
     # Sort
@@ -240,6 +250,8 @@ def get_teleco_stats(
     comuna: Optional[str] = None,
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None,
+    mes: Optional[int] = None,
+    anio: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Get aggregated statistics for Telecomunicaciones."""
     df = load_teleco_data()
@@ -260,6 +272,7 @@ def get_teleco_stats(
         "por_resultado": {},
         "por_mes": [],
         "por_tiene_plano": [],
+        "motivos_rechazo": [],
         "evolucion_mensual": [],
         "comparativas": {
             "aprobacion": {"actual": 0, "anterior": 0, "diferencia": 0},
@@ -284,6 +297,12 @@ def get_teleco_stats(
 
     if fecha_hasta and 'fecha_inspeccion' in df.columns:
         mask &= df['fecha_inspeccion'] <= pd.to_datetime(fecha_hasta)
+
+    if mes and 'mes' in df.columns:
+        mask &= df['mes'] == mes
+
+    if anio and 'anio' in df.columns:
+        mask &= df['anio'] == anio
 
     df = df[mask].copy()
 
@@ -435,6 +454,51 @@ def get_teleco_stats(
                     "diferencia": round(tasa_act - tasa_ant, 1)
                 }
 
+    # Motivos de Rechazo (extraer de observaciones)
+    motivos_rechazo = []
+    if 'observacion' in df.columns and 'resultado' in df.columns:
+        df_rechazados = df[df['resultado'] == 'RECHAZADO']
+
+        # Patrones de motivos de rechazo
+        motivos_patrones = {
+            'SATURACION ESPACIO AEREO': ['saturacion', 'saturado', 'espacio aereo'],
+            'VANOS FUERA DE NORMA': ['vanos fuera', 'vano fuera', 'distancia'],
+            'ESCOMBRO AEREO': ['escombro'],
+            'VEGETACION EN LINEAS': ['vegetacion', 'poda', 'arbol'],
+            'FALTA SOLUCION MECANICA': ['solucion mecanica', 'mecanica'],
+            'TRABAJOS YA REALIZADOS': ['ya realizados', 'realizados en terreno'],
+            'RESERVA TECNICA FUERA DE NORMA': ['reserva tecnica'],
+            'CRUCETAS EN MAL ESTADO': ['cruceta', 'mal estado'],
+            'SOBRECARGA DE APOYOS': ['apoyos', 'mas de 10', 'mas de 13'],
+            'SIN ESPECIFICAR': []
+        }
+
+        conteo_motivos = {k: 0 for k in motivos_patrones.keys()}
+
+        for obs in df_rechazados['observacion'].fillna('').str.lower():
+            encontrado = False
+            for motivo, patrones in motivos_patrones.items():
+                if motivo == 'SIN ESPECIFICAR':
+                    continue
+                for patron in patrones:
+                    if patron in obs:
+                        conteo_motivos[motivo] += 1
+                        encontrado = True
+                        break
+                if encontrado:
+                    break
+            if not encontrado and obs.strip():
+                conteo_motivos['SIN ESPECIFICAR'] += 1
+
+        # Ordenar y formatear
+        for motivo, cantidad in sorted(conteo_motivos.items(), key=lambda x: x[1], reverse=True):
+            if cantidad > 0:
+                motivos_rechazo.append({
+                    "motivo": motivo,
+                    "cantidad": cantidad,
+                    "porcentaje": round((cantidad / rechazados * 100), 1) if rechazados > 0 else 0
+                })
+
     # Insights
     insights = []
 
@@ -501,6 +565,7 @@ def get_teleco_stats(
         "por_resultado": por_resultado,
         "por_mes": por_mes,
         "por_tiene_plano": por_tiene_plano,
+        "motivos_rechazo": motivos_rechazo,
         "evolucion_mensual": evolucion_mensual,
         "comparativas": comparativas,
         "insights": insights,
@@ -548,3 +613,19 @@ def get_teleco_inspectors() -> List[Dict[str, Any]]:
             })
 
     return inspectors
+
+
+def get_teleco_periodos() -> Dict[str, List[int]]:
+    """Get available months and years."""
+    df = load_teleco_data()
+    result = {"meses": [], "anios": []}
+
+    if 'mes' in df.columns:
+        meses = df['mes'].dropna().unique().tolist()
+        result["meses"] = sorted([int(m) for m in meses if m and not pd.isna(m)])
+
+    if 'anio' in df.columns:
+        anios = df['anio'].dropna().unique().tolist()
+        result["anios"] = sorted([int(a) for a in anios if a and not pd.isna(a)])
+
+    return result

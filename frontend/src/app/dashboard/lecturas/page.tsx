@@ -29,8 +29,10 @@ import {
   TabPanels,
   ProgressBar,
 } from '@tremor/react'
-import { Download, Search, Filter, CheckCircle, XCircle, Clock, AlertTriangle, TrendingUp, TrendingDown, Info, AlertCircle, FileText, Users } from 'lucide-react'
+import { Search, Filter, CheckCircle, XCircle, Clock, AlertTriangle, TrendingUp, TrendingDown, Info, AlertCircle, FileText, Users } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { ExportOverlay } from '@/components/ui/ExportOverlay'
+import { ExportDropdown } from '@/components/ui/ExportDropdown'
 import { formatNumber } from '@/lib/utils'
 import { api } from '@/lib/api'
 
@@ -93,10 +95,28 @@ interface PaginatedResponse {
 
 const META_CUMPLIMIENTO = 90
 
+const MESES = [
+  { value: 1, label: 'Enero' },
+  { value: 2, label: 'Febrero' },
+  { value: 3, label: 'Marzo' },
+  { value: 4, label: 'Abril' },
+  { value: 5, label: 'Mayo' },
+  { value: 6, label: 'Junio' },
+  { value: 7, label: 'Julio' },
+  { value: 8, label: 'Agosto' },
+  { value: 9, label: 'Septiembre' },
+  { value: 10, label: 'Octubre' },
+  { value: 11, label: 'Noviembre' },
+  { value: 12, label: 'Diciembre' },
+]
+
 export default function LecturasPage() {
   // Global filters
   const [globalSector, setGlobalSector] = useState('')
   const [globalOrigen, setGlobalOrigen] = useState('')
+  const [globalMes, setGlobalMes] = useState('')
+  const [globalAnio, setGlobalAnio] = useState('')
+  const [periodos, setPeriodos] = useState<{ meses: number[]; anios: number[] }>({ meses: [], anios: [] })
 
   // Table filters
   const [dateRange, setDateRange] = useState<DateRangePickerValue>({})
@@ -112,12 +132,25 @@ export default function LecturasPage() {
   const [hallazgos, setHallazgos] = useState<string[]>([])
   const [inspectors, setInspectors] = useState<Array<{ inspector: string; cantidad: number; tasa_cumplimiento: number }>>([])
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
+  const [exportFormat, setExportFormat] = useState<'excel' | 'csv'>('excel')
+
+  const fetchPeriodos = useCallback(async () => {
+    try {
+      const response = await api.get<{ meses: number[]; anios: number[] }>('/api/v1/lecturas/periodos')
+      setPeriodos(response)
+    } catch (error) {
+      console.error('Error fetching periodos:', error)
+    }
+  }, [])
 
   const fetchStats = useCallback(async () => {
     try {
       const params = new URLSearchParams()
       if (globalSector) params.append('sector', globalSector)
       if (globalOrigen) params.append('origen', globalOrigen)
+      if (globalMes) params.append('mes', globalMes)
+      if (globalAnio) params.append('anio', globalAnio)
 
       const url = `/api/v1/lecturas/stats${params.toString() ? '?' + params.toString() : ''}`
       const response = await api.get<Stats>(url)
@@ -125,7 +158,7 @@ export default function LecturasPage() {
     } catch (error) {
       console.error('Error fetching stats:', error)
     }
-  }, [globalSector, globalOrigen])
+  }, [globalSector, globalOrigen, globalMes, globalAnio])
 
   const fetchData = useCallback(async () => {
     try {
@@ -135,6 +168,8 @@ export default function LecturasPage() {
       if (searchTerm) params.append('search', searchTerm)
       if (globalSector) params.append('sector', globalSector)
       if (globalOrigen) params.append('origen', globalOrigen)
+      if (globalMes) params.append('mes', globalMes)
+      if (globalAnio) params.append('anio', globalAnio)
       if (inspector) params.append('inspector', inspector)
       if (hallazgo) params.append('hallazgo', hallazgo)
       if (dateRange.from) params.append('fecha_desde', dateRange.from.toISOString().split('T')[0])
@@ -145,7 +180,7 @@ export default function LecturasPage() {
     } catch (error) {
       console.error('Error fetching data:', error)
     }
-  }, [page, searchTerm, globalSector, globalOrigen, inspector, hallazgo, dateRange])
+  }, [page, searchTerm, globalSector, globalOrigen, globalMes, globalAnio, inspector, hallazgo, dateRange])
 
   const fetchSectores = useCallback(async () => {
     try {
@@ -177,11 +212,11 @@ export default function LecturasPage() {
   useEffect(() => {
     const loadInitialData = async () => {
       setLoading(true)
-      await Promise.all([fetchSectores(), fetchHallazgos(), fetchInspectors()])
+      await Promise.all([fetchSectores(), fetchHallazgos(), fetchInspectors(), fetchPeriodos()])
       setLoading(false)
     }
     loadInitialData()
-  }, [fetchSectores, fetchHallazgos, fetchInspectors])
+  }, [fetchSectores, fetchHallazgos, fetchInspectors, fetchPeriodos])
 
   useEffect(() => {
     fetchStats()
@@ -231,6 +266,36 @@ export default function LecturasPage() {
   const clearGlobalFilters = () => {
     setGlobalSector('')
     setGlobalOrigen('')
+    setGlobalMes('')
+    setGlobalAnio('')
+  }
+
+  const hasActiveFilters = Boolean(globalSector || globalOrigen || globalMes || globalAnio || inspector || hallazgo || searchTerm || dateRange.from || dateRange.to)
+
+  const handleExport = async (format: 'csv' | 'excel') => {
+    try {
+      setExportFormat(format)
+      setExporting(true)
+      const params: Record<string, string | undefined> = {
+        format,
+        sector: globalSector || undefined,
+        origen: globalOrigen || undefined,
+        mes: globalMes || undefined,
+        anio: globalAnio || undefined,
+        inspector: inspector || undefined,
+        hallazgo: hallazgo || undefined,
+        search: searchTerm || undefined,
+        fecha_desde: dateRange.from ? dateRange.from.toISOString().split('T')[0] : undefined,
+        fecha_hasta: dateRange.to ? dateRange.to.toISOString().split('T')[0] : undefined,
+      }
+      const filename = format === 'excel' ? 'lecturas.xlsx' : 'lecturas.csv'
+      await api.downloadFile('/api/v1/lecturas/export', filename, params)
+    } catch (error) {
+      console.error('Error exporting:', error)
+      alert('Error al exportar los datos')
+    } finally {
+      setExporting(false)
+    }
   }
 
   // Chart data
@@ -320,6 +385,12 @@ export default function LecturasPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <ExportOverlay
+        isVisible={exporting}
+        format={exportFormat}
+        recordCount={hasActiveFilters ? data?.total : stats?.total}
+        hasFilters={hasActiveFilters}
+      />
       <Header
         title="Control de Lecturas"
         subtitle="Verificacion y Hallazgos de Lectura"
@@ -350,7 +421,22 @@ export default function LecturasPage() {
                   <SelectItem value="VISITA VIRTUAL">VISITA VIRTUAL</SelectItem>
                 </Select>
               </div>
-              {(globalSector || globalOrigen) && (
+              <div className="flex items-center gap-3 ml-4 pl-4 border-l-2 border-gray-300 bg-white rounded-r-lg py-2 pr-4">
+                <span className="text-xs text-gray-600 font-medium whitespace-nowrap">Periodo:</span>
+                <Select value={globalAnio} onValueChange={setGlobalAnio} placeholder="Año" className="w-32">
+                  <SelectItem value="">Año</SelectItem>
+                  {periodos.anios.map(a => (
+                    <SelectItem key={a} value={String(a)}>{a}</SelectItem>
+                  ))}
+                </Select>
+                <Select value={globalMes} onValueChange={setGlobalMes} placeholder="Mes" className="w-40">
+                  <SelectItem value="">Mes</SelectItem>
+                  {MESES.filter(m => periodos.meses.includes(m.value)).map(m => (
+                    <SelectItem key={m.value} value={String(m.value)}>{m.label}</SelectItem>
+                  ))}
+                </Select>
+              </div>
+              {(globalSector || globalOrigen || globalMes || globalAnio) && (
                 <button
                   onClick={clearGlobalFilters}
                   className="text-sm text-oca-blue hover:text-oca-blue-dark"
@@ -408,14 +494,13 @@ export default function LecturasPage() {
         {/* Tabs */}
         <TabGroup>
           <TabList className="mb-4">
-            <Tab icon={FileText}>Hallazgos</Tab>
-            <Tab icon={Clock}>Plazos</Tab>
-            <Tab icon={Users}>Inspectores</Tab>
-            <Tab icon={AlertCircle}>Insights</Tab>
+            <Tab icon={FileText}>Resumen Ejecutivo</Tab>
+            <Tab icon={Clock}>Análisis de Plazos</Tab>
+            <Tab icon={TrendingUp}>Tendencias</Tab>
             <Tab icon={Search}>Datos</Tab>
           </TabList>
           <TabPanels>
-            {/* Hallazgos Panel */}
+            {/* Resumen Ejecutivo Panel */}
             <TabPanel>
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
                 {/* Estado de Inspeccion */}
@@ -590,7 +675,7 @@ export default function LecturasPage() {
               </Card>
             </TabPanel>
 
-            {/* Plazos Panel */}
+            {/* Análisis de Plazos Panel */}
             <TabPanel>
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
                 {/* Cumplimiento de Plazo */}
@@ -726,83 +811,7 @@ export default function LecturasPage() {
               )}
             </TabPanel>
 
-            {/* Inspectores Panel */}
-            <TabPanel>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                {/* Top Inspectores por Cantidad */}
-                <Card>
-                  <Title>Top 10 Inspectores</Title>
-                  <Text className="text-gray-500">Por cantidad de inspecciones</Text>
-                  <BarChart
-                    className="mt-4 h-80"
-                    data={inspectorChartData}
-                    index="inspector"
-                    categories={['cantidad']}
-                    colors={['blue']}
-                    valueFormatter={(v) => formatNumber(v)}
-                    layout="vertical"
-                    yAxisWidth={120}
-                    showAnimation
-                  />
-                </Card>
-
-                {/* Cumplimiento por Inspector */}
-                <Card>
-                  <Title>Cumplimiento por Inspector</Title>
-                  <Text className="text-gray-500">Tasa de cumplimiento de plazo</Text>
-                  <div className="mt-4 space-y-3">
-                    {inspectorChartData.map((insp) => (
-                      <div key={insp.inspector}>
-                        <Flex justifyContent="between" className="mb-1">
-                          <Text className="text-sm truncate max-w-[180px]">{insp.inspector}</Text>
-                          <div className="flex items-center gap-3">
-                            <Text className="text-xs text-gray-400">{formatNumber(insp.cantidad)}</Text>
-                            <span className={`text-sm font-medium ${insp.tasa_cumplimiento >= META_CUMPLIMIENTO ? 'text-emerald-600' : 'text-amber-600'}`}>
-                              {insp.tasa_cumplimiento}%
-                            </span>
-                          </div>
-                        </Flex>
-                        <ProgressBar
-                          value={insp.tasa_cumplimiento}
-                          color={insp.tasa_cumplimiento >= META_CUMPLIMIENTO ? 'emerald' : 'amber'}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-              </div>
-
-              {/* Tabla de Inspectores */}
-              <Card>
-                <Title>Todos los Inspectores</Title>
-                <Table className="mt-4">
-                  <TableHead>
-                    <TableRow>
-                      <TableHeaderCell>#</TableHeaderCell>
-                      <TableHeaderCell>Inspector</TableHeaderCell>
-                      <TableHeaderCell className="text-right">Cantidad</TableHeaderCell>
-                      <TableHeaderCell className="text-right">Tasa Cumplimiento</TableHeaderCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {inspectors.slice(0, 15).map((insp, i) => (
-                      <TableRow key={insp.inspector}>
-                        <TableCell className="text-gray-400">{i + 1}</TableCell>
-                        <TableCell>{insp.inspector}</TableCell>
-                        <TableCell className="text-right">{formatNumber(insp.cantidad)}</TableCell>
-                        <TableCell className="text-right">
-                          <span className={insp.tasa_cumplimiento >= META_CUMPLIMIENTO ? 'text-emerald-600' : 'text-amber-600'}>
-                            {insp.tasa_cumplimiento}%
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Card>
-            </TabPanel>
-
-            {/* Insights Panel */}
+            {/* Tendencias Panel */}
             <TabPanel>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Insights Automaticos */}
@@ -987,10 +996,13 @@ export default function LecturasPage() {
                       <Filter size={14} />
                       Limpiar
                     </Button>
-                    <Button variant="secondary" size="sm">
-                      <Download size={14} />
-                      Exportar
-                    </Button>
+                    <ExportDropdown
+                      onExport={handleExport}
+                      loading={exporting}
+                      loadingFormat={exporting ? exportFormat : null}
+                      totalRecords={data?.total}
+                      hasFilters={hasActiveFilters}
+                    />
                   </div>
                 </Flex>
               </Card>

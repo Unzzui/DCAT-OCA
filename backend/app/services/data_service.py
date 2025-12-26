@@ -7,9 +7,6 @@ from ..core.config import settings
 # Global dataframe cache
 _df_cache: Optional[pd.DataFrame] = None
 
-# Precio por inspección (CLP)
-PRECIO_INSPECCION = 3000
-
 
 def load_data(force_reload: bool = False) -> pd.DataFrame:
     global _df_cache
@@ -72,6 +69,9 @@ def load_data(force_reload: bool = False) -> pd.DataFrame:
     # Parse dates
     if "fecha_inspeccion" in df.columns:
         df["fecha_inspeccion"] = pd.to_datetime(df["fecha_inspeccion"], errors='coerce')
+        # Agregar mes y año para filtrado
+        df['mes'] = df['fecha_inspeccion'].dt.month
+        df['anio'] = df['fecha_inspeccion'].dt.year
 
     # Normalizar inspector (Title Case)
     if "inspector" in df.columns:
@@ -99,6 +99,8 @@ def get_filtered_data(
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None,
     base: Optional[str] = None,
+    mes: Optional[int] = None,
+    anio: Optional[int] = None,
     page: int = 1,
     limit: int = 50,
     sort_by: str = "fecha_inspeccion",
@@ -147,6 +149,12 @@ def get_filtered_data(
     if fecha_hasta and 'fecha_inspeccion' in df.columns:
         mask &= df['fecha_inspeccion'] <= pd.to_datetime(fecha_hasta)
 
+    if mes and 'mes' in df.columns:
+        mask &= df['mes'] == mes
+
+    if anio and 'anio' in df.columns:
+        mask &= df['anio'] == anio
+
     filtered_df = df[mask].copy()
 
     # Sort
@@ -190,6 +198,8 @@ def get_stats(
     base: Optional[str] = None,
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None,
+    mes: Optional[int] = None,
+    anio: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Get aggregated statistics for NNCC inspections with optional filters."""
     df = load_data()
@@ -204,7 +214,6 @@ def get_stats(
         "por_zona": {},
         "por_inspector": [],
         "por_mes": [],
-        "monto_estimado": 0,
         "con_multa": 0,
         "pendientes_normalizar": 0,
         # Client metrics
@@ -241,6 +250,12 @@ def get_stats(
 
     if fecha_hasta and 'fecha_inspeccion' in df.columns:
         mask &= df['fecha_inspeccion'] <= pd.to_datetime(fecha_hasta)
+
+    if mes and 'mes' in df.columns:
+        mask &= df['mes'] == mes
+
+    if anio and 'anio' in df.columns:
+        mask &= df['anio'] == anio
 
     df = df[mask].copy()
 
@@ -307,9 +322,6 @@ def get_stats(
                 monthly.at[idx, 'efectividad'] = round((efectivas_mes / row['cantidad'] * 100), 1) if row['cantidad'] > 0 else 0
 
             por_mes = monthly.tail(12).to_dict(orient='records')
-
-    # Monto estimado
-    monto_estimado = total * PRECIO_INSPECCION
 
     # Con multa
     con_multa = 0
@@ -592,7 +604,6 @@ def get_stats(
         "por_zona": por_zona,
         "por_inspector": por_inspector,
         "por_mes": por_mes,
-        "monto_estimado": monto_estimado,
         "con_multa": con_multa,
         "pendientes_normalizar": pendientes_normalizar,
         # Client metrics
@@ -654,3 +665,19 @@ def get_bases() -> List[str]:
     if 'base' in df.columns:
         return sorted(df['base'].dropna().unique().tolist(), reverse=True)
     return []
+
+
+def get_periodos() -> Dict[str, List[int]]:
+    """Get available months and years."""
+    df = load_data()
+    result = {"meses": [], "anios": []}
+
+    if 'mes' in df.columns:
+        meses = df['mes'].dropna().unique().tolist()
+        result["meses"] = sorted([int(m) for m in meses if m and not pd.isna(m)])
+
+    if 'anio' in df.columns:
+        anios = df['anio'].dropna().unique().tolist()
+        result["anios"] = sorted([int(a) for a in anios if a and not pd.isna(a)])
+
+    return result

@@ -71,7 +71,6 @@ class InspeccionesStats(BaseModel):
     por_zona: Dict[str, int]
     por_inspector: List[InspectorStats]
     por_mes: List[Dict[str, Any]]
-    monto_estimado: int
     con_multa: int
     pendientes_normalizar: int
 

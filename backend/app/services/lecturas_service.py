@@ -162,6 +162,11 @@ def load_lecturas_data(force_reload: bool = False) -> pd.DataFrame:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors='coerce')
 
+    # Extraer mes y año de fecha_ingreso
+    if 'fecha_ingreso' in df.columns:
+        df['mes'] = df['fecha_ingreso'].dt.month
+        df['anio'] = df['fecha_ingreso'].dt.year
+
     # Calcular dias de respuesta
     if 'fecha_ingreso' in df.columns and 'fecha_respuesta' in df.columns:
         df['dias_respuesta'] = (df['fecha_respuesta'] - df['fecha_ingreso']).dt.days
@@ -185,6 +190,8 @@ def get_lecturas_filtered_data(
     comuna: Optional[str] = None,
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None,
+    mes: Optional[int] = None,
+    anio: Optional[int] = None,
     page: int = 1,
     limit: int = 50,
     sort_by: str = "fecha_ingreso",
@@ -237,6 +244,12 @@ def get_lecturas_filtered_data(
     if fecha_hasta and 'fecha_ingreso' in df.columns:
         mask &= df['fecha_ingreso'] <= pd.to_datetime(fecha_hasta)
 
+    if mes and 'mes' in df.columns:
+        mask &= df['mes'] == mes
+
+    if anio and 'anio' in df.columns:
+        mask &= df['anio'] == anio
+
     filtered_df = df[mask].copy()
 
     # Sort
@@ -286,6 +299,8 @@ def get_lecturas_stats(
     origen: Optional[str] = None,
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None,
+    mes: Optional[int] = None,
+    anio: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Get aggregated statistics for Lecturas."""
     df = load_lecturas_data()
@@ -334,6 +349,12 @@ def get_lecturas_stats(
 
     if fecha_hasta and 'fecha_ingreso' in df.columns:
         mask &= df['fecha_ingreso'] <= pd.to_datetime(fecha_hasta)
+
+    if mes and 'mes' in df.columns:
+        mask &= df['mes'] == mes
+
+    if anio and 'anio' in df.columns:
+        mask &= df['anio'] == anio
 
     df = df[mask].copy()
 
@@ -607,3 +628,19 @@ def get_lecturas_comunas() -> List[str]:
     if 'comuna' in df.columns:
         return sorted([c for c in df['comuna'].dropna().unique().tolist() if c])
     return []
+
+
+def get_lecturas_periodos() -> Dict[str, List[int]]:
+    """Get available months and years."""
+    df = load_lecturas_data()
+    result = {"meses": [], "anios": []}
+
+    if 'mes' in df.columns:
+        meses = df['mes'].dropna().unique().tolist()
+        result["meses"] = sorted([int(m) for m in meses if m])
+
+    if 'anio' in df.columns:
+        anios = df['anio'].dropna().unique().tolist()
+        result["anios"] = sorted([int(a) for a in anios if a])
+
+    return result
