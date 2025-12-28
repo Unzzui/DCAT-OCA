@@ -27,7 +27,7 @@ const navigation = [
   { name: 'Informe NNCC', href: '/dashboard/nuevas-conexiones', icon: ClipboardCheck },
   { name: 'Lecturas', href: '/dashboard/lecturas', icon: FileText },
   { name: 'Telecom', href: '/dashboard/telecomunicaciones', icon: Radio },
-  { name: 'Corte y Repo.', href: '/dashboard/corte-reposicion', icon: Scissors, disabled: true },
+  { name: 'Corte y Repo.', href: '/dashboard/corte-reposicion', icon: Scissors },
   { name: 'Ctrl. Perdidas', href: '/dashboard/control-perdidas', icon: SearchX },
 ]
 

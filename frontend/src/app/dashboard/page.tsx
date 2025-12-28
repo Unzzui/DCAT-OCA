@@ -26,6 +26,8 @@ import {
   BarChart3,
   ArrowRight,
   Radio,
+  Scissors,
+  AlertTriangle,
 } from 'lucide-react'
 import { formatNumber } from '@/lib/utils'
 import { api } from '@/lib/api'
@@ -80,6 +82,17 @@ interface DashboardSummary {
   }
   corte_reposicion: {
     total: number
+    bien_ejecutados: number
+    no_ejecutados: number
+    tasa_calidad: number
+    con_multa: number
+    sin_multa: number
+    tasa_multa: number
+    factible_cortar: number
+    no_factible_cortar: number
+    por_zona: Array<{ zona: string; cantidad: number; bien_ejecutados: number; tasa_calidad: number }>
+    por_situacion_encontrada: Array<{ situacion: string; cantidad: number }>
+    por_mes: Array<{ periodo: string; total: number; bien_ejecutados: number; tasa_calidad: number }>
     ultima_actualizacion: string | null
     activo: boolean
   }
@@ -106,6 +119,7 @@ interface DashboardSummary {
 const META_EFECTIVIDAD = 95
 const META_CUMPLIMIENTO = 90
 const META_APROBACION = 50
+const META_CALIDAD_CORTE = 80
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -335,15 +349,39 @@ export default function DashboardPage() {
 
           {/* Corte y Reposicion Card */}
           <Card
-            className="opacity-60"
+            className={data?.corte_reposicion.activo ? "cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02]" : "opacity-60"}
+            onClick={() => data?.corte_reposicion.activo && router.push('/dashboard/corte-reposicion')}
           >
             <div>
-              <Text className="text-gray-500">Corte y Reposicion</Text>
-              <p className="text-2xl font-bold text-gray-400 mt-1">-</p>
+              <Text className="text-gray-500">Corte y Repo.</Text>
+              <p className="text-2xl font-bold text-gray-900 mt-1">
+                {data?.corte_reposicion.activo ? formatNumber(data?.corte_reposicion.total || 0) : '-'}
+              </p>
             </div>
-            <div className="mt-4">
-              <Text className="text-gray-400 text-sm">Proximamente</Text>
-            </div>
+            {data?.corte_reposicion.activo ? (
+              <>
+                <div className="mt-4 space-y-2">
+                  <Flex justifyContent="between">
+                    <span className="text-xs text-gray-500">Bien Ejecutados</span>
+                    <span className="text-xs font-medium text-emerald-600">{formatNumber(data?.corte_reposicion.bien_ejecutados || 0)}</span>
+                  </Flex>
+                  <Flex justifyContent="between">
+                    <span className="text-xs text-gray-500">Con Multa</span>
+                    <span className="text-xs font-medium text-amber-600">{formatNumber(data?.corte_reposicion.con_multa || 0)}</span>
+                  </Flex>
+                </div>
+                {data?.corte_reposicion.ultima_actualizacion && (
+                  <Flex className="mt-2" alignItems="center" justifyContent="end">
+                    <Calendar size={12} className="text-gray-400 mr-1" />
+                    <span className="text-[10px] text-gray-400">{data.corte_reposicion.ultima_actualizacion}</span>
+                  </Flex>
+                )}
+              </>
+            ) : (
+              <div className="mt-4">
+                <Text className="text-gray-400 text-sm">Sin datos</Text>
+              </div>
+            )}
           </Card>
 
           {/* Control Perdidas Card */}
@@ -645,6 +683,104 @@ export default function DashboardPage() {
             </Card>
           </div>
         </div>
+
+        {/* Corte y Reposicion Section - Solo si está activo */}
+        {data?.corte_reposicion.activo && (
+          <div className="mb-6">
+            <Flex className="mb-4" alignItems="center" justifyContent="between">
+              <div className="flex items-center gap-2">
+                <Scissors size={20} className="text-rose-600" />
+                <Title>Corte y Reposicion</Title>
+              </div>
+              <button
+                onClick={() => router.push('/dashboard/corte-reposicion')}
+                className="text-sm text-oca-blue hover:text-oca-blue-dark flex items-center gap-1"
+              >
+                Ver detalle <ArrowRight size={14} />
+              </button>
+            </Flex>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Corte KPIs */}
+              <Card>
+                <Title>Resumen Inspecciones</Title>
+                <div className="mt-4 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="text-center p-3 bg-emerald-50 rounded-lg">
+                      <CheckCircle size={20} className="text-emerald-500 mx-auto mb-1" />
+                      <p className="text-xl font-bold text-emerald-600">{formatNumber(data?.corte_reposicion.bien_ejecutados || 0)}</p>
+                      <p className="text-xs text-gray-600">Bien Ejecutados</p>
+                    </div>
+                    <div className="text-center p-3 bg-rose-50 rounded-lg">
+                      <XCircle size={20} className="text-rose-500 mx-auto mb-1" />
+                      <p className="text-xl font-bold text-rose-600">{formatNumber(data?.corte_reposicion.no_ejecutados || 0)}</p>
+                      <p className="text-xs text-gray-600">No Ejecutados</p>
+                    </div>
+                  </div>
+                  <div>
+                    <Flex justifyContent="between" className="mb-1">
+                      <Text className="text-sm">Tasa de Calidad</Text>
+                      <Text className="text-sm font-medium">{data?.corte_reposicion.tasa_calidad || 0}%</Text>
+                    </Flex>
+                    <ProgressBar
+                      value={data?.corte_reposicion.tasa_calidad || 0}
+                      color={data && data.corte_reposicion.tasa_calidad >= META_CALIDAD_CORTE ? 'emerald' : 'amber'}
+                    />
+                  </div>
+                  <div className="pt-3 border-t">
+                    <Flex justifyContent="between">
+                      <Text className="text-sm text-gray-500">Con Multa</Text>
+                      <Text className="text-sm font-medium text-amber-600">{formatNumber(data?.corte_reposicion.con_multa || 0)}</Text>
+                    </Flex>
+                    <Flex justifyContent="between" className="mt-1">
+                      <Text className="text-sm text-gray-500">Factible Cortar</Text>
+                      <Text className="text-sm font-medium text-blue-600">{formatNumber(data?.corte_reposicion.factible_cortar || 0)}</Text>
+                    </Flex>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Por Situacion Encontrada */}
+              <Card>
+                <Title>Situaciones Encontradas</Title>
+                <Text className="text-gray-500">Top 5 mas frecuentes</Text>
+                <BarChart
+                  className="mt-4 h-40"
+                  data={data?.corte_reposicion.por_situacion_encontrada?.slice(0, 5).map(s => ({
+                    name: s.situacion.length > 18 ? s.situacion.substring(0, 18) + '...' : s.situacion,
+                    value: s.cantidad
+                  })) || []}
+                  index="name"
+                  categories={['value']}
+                  colors={['rose']}
+                  valueFormatter={(v) => formatNumber(v)}
+                  layout="vertical"
+                  yAxisWidth={120}
+                  showAnimation
+                />
+              </Card>
+
+              {/* Por Zona */}
+              <Card>
+                <Title>Por Zona</Title>
+                <Text className="text-gray-500">Distribucion geografica</Text>
+                <BarChart
+                  className="mt-4 h-40"
+                  data={data?.corte_reposicion.por_zona?.slice(0, 5).map(z => ({
+                    name: z.zona,
+                    Cantidad: z.cantidad,
+                    'Bien Ejec.': z.bien_ejecutados,
+                  })) || []}
+                  index="name"
+                  categories={['Cantidad', 'Bien Ejec.']}
+                  colors={['cyan', 'emerald']}
+                  valueFormatter={(v) => formatNumber(v)}
+                  showAnimation
+                />
+              </Card>
+            </div>
+          </div>
+        )}
 
         {/* Control Perdidas Section - Solo si está activo */}
         {data?.control_perdidas.activo && (

@@ -8,7 +8,7 @@ from typing import Dict, Any
 import os
 from datetime import datetime
 from ...schemas.user import User
-from ...services import data_service, lecturas_service, teleco_service, calidad_service
+from ...services import data_service, lecturas_service, teleco_service, calidad_service, corte_service
 from ..deps import get_current_user
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -73,6 +73,11 @@ async def get_dashboard_summary(
         if t and (calidad_updated is None or t > calidad_updated):
             calidad_updated = t
 
+    # === Corte y Reposicion Stats ===
+    corte_stats = corte_service.get_corte_stats()
+    corte_csv_path = os.path.join(base_path, "informe_corte.csv")
+    corte_updated = get_file_update_time(corte_csv_path)
+
     # === Build Response ===
     return {
         "nncc": {
@@ -116,9 +121,20 @@ async def get_dashboard_summary(
             "activo": True,
         },
         "corte_reposicion": {
-            "total": 0,
-            "ultima_actualizacion": None,
-            "activo": False,
+            "total": corte_stats.get("total", 0),
+            "bien_ejecutados": corte_stats.get("bien_ejecutados", 0),
+            "no_ejecutados": corte_stats.get("no_ejecutados", 0),
+            "tasa_calidad": corte_stats.get("tasa_calidad", 0),
+            "con_multa": corte_stats.get("con_multa", 0),
+            "sin_multa": corte_stats.get("sin_multa", 0),
+            "tasa_multa": corte_stats.get("tasa_multa", 0),
+            "factible_cortar": corte_stats.get("factible_cortar", 0),
+            "no_factible_cortar": corte_stats.get("no_factible_cortar", 0),
+            "por_zona": corte_stats.get("por_zona", [])[:5],
+            "por_situacion_encontrada": corte_stats.get("por_situacion_encontrada", [])[:5],
+            "por_mes": corte_stats.get("por_mes", []),
+            "ultima_actualizacion": corte_updated,
+            "activo": corte_stats.get("total", 0) > 0,
         },
         "control_perdidas": {
             "total_solicitadas": calidad_stats.get("total_solicitadas", 0),
@@ -138,9 +154,19 @@ async def get_dashboard_summary(
                 nncc_stats.get("total", 0) +
                 lecturas_stats.get("total", 0) +
                 teleco_stats.get("total", 0) +
-                calidad_stats.get("total_ejecutadas", 0)
+                calidad_stats.get("total_ejecutadas", 0) +
+                corte_stats.get("total", 0)
             ),
-            "modulos_activos": 4 if calidad_stats.get("total_ejecutadas", 0) > 0 else 3,
-            "modulos_pendientes": 1 if calidad_stats.get("total_ejecutadas", 0) > 0 else 2,
+            "modulos_activos": sum([
+                1,  # NNCC siempre activo
+                1,  # Lecturas siempre activo
+                1,  # Teleco siempre activo
+                1 if calidad_stats.get("total_ejecutadas", 0) > 0 else 0,
+                1 if corte_stats.get("total", 0) > 0 else 0,
+            ]),
+            "modulos_pendientes": sum([
+                0 if calidad_stats.get("total_ejecutadas", 0) > 0 else 1,
+                0 if corte_stats.get("total", 0) > 0 else 1,
+            ]),
         }
     }

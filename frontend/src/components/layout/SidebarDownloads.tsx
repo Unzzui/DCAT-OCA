@@ -14,7 +14,7 @@ import {
 import { cn } from '@/lib/utils'
 import { ExportModal } from '@/components/ui/ExportModal'
 
-type ReportType = 'nncc' | 'lecturas' | 'teleco' | 'calidad'
+type ReportType = 'nncc' | 'lecturas' | 'teleco' | 'calidad' | 'corte'
 
 interface Report {
   id: ReportType
@@ -28,6 +28,7 @@ const reports: Report[] = [
   { id: 'nncc', name: 'Nuevas Conexiones', shortName: 'NNCC', icon: ClipboardCheck, enabled: true },
   { id: 'lecturas', name: 'Lecturas', shortName: 'Lecturas', icon: FileText, enabled: true },
   { id: 'teleco', name: 'Telecomunicaciones', shortName: 'Telecom', icon: Radio, enabled: true },
+  { id: 'corte', name: 'Corte y Reposición', shortName: 'Corte y Repo.', icon: Scissors, enabled: true },
   { id: 'calidad', name: 'Control de Pérdidas', shortName: 'Ctrl. Pérdidas', icon: SearchX, enabled: true },
 ]
 

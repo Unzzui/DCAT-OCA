@@ -17,7 +17,7 @@ import {
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
 
-type ReportType = 'nncc' | 'lecturas' | 'teleco' | 'calidad'
+type ReportType = 'nncc' | 'lecturas' | 'teleco' | 'calidad' | 'corte'
 
 interface ExportModalProps {
   isOpen: boolean
@@ -113,6 +113,7 @@ export function ExportModal({ isOpen, onClose, reportType, reportName }: ExportM
     lecturas: '/api/v1/lecturas',
     teleco: '/api/v1/teleco',
     calidad: '/api/v1/calidad',
+    corte: '/api/v1/corte',
   }
 
   // Obtener conteo de registros
@@ -216,6 +217,21 @@ export function ExportModal({ isOpen, onClose, reportType, reportName }: ExportM
           ]
           newOptions.anio = (periodos.anios || []).map(a => ({ value: String(a), label: String(a) }))
         }
+
+        if (reportType === 'corte') {
+          const [zonas, centros, comunas, situaciones, periodos] = await Promise.all([
+            api.get<string[]>('/api/v1/corte/zonas').catch(() => []),
+            api.get<string[]>('/api/v1/corte/centros-operativos').catch(() => []),
+            api.get<string[]>('/api/v1/corte/comunas').catch(() => []),
+            api.get<string[]>('/api/v1/corte/situaciones').catch(() => []),
+            api.get<PeriodosResponse>('/api/v1/corte/periodos').catch(() => ({ meses: [], anios: [] })),
+          ])
+          newOptions.zona = (zonas as string[]).map(z => ({ value: z, label: z }))
+          newOptions.centro_operativo = (centros as string[]).map(c => ({ value: c, label: c }))
+          newOptions.comuna = (comunas as string[]).slice(0, 50).map(c => ({ value: c, label: c }))
+          newOptions.situacion_encontrada = (situaciones as string[]).slice(0, 20).map(s => ({ value: s, label: s }))
+          newOptions.anio = (periodos.anios || []).map(a => ({ value: String(a), label: String(a) }))
+        }
       } catch (error) {
         console.error('Error loading options:', error)
       }
@@ -261,6 +277,7 @@ export function ExportModal({ isOpen, onClose, reportType, reportName }: ExportM
         lecturas: '/api/v1/lecturas/export',
         teleco: '/api/v1/teleco/export',
         calidad: '/api/v1/calidad/export',
+        corte: '/api/v1/corte/export',
       }
 
       const params: Record<string, string | number | boolean | undefined> = {
@@ -526,6 +543,48 @@ export function ExportModal({ isOpen, onClose, reportType, reportName }: ExportM
                             value={filters.comuna || ''}
                             onChange={v => handleFilterChange('comuna', v)}
                             options={options.comuna}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Corte y Reposicion */}
+                  {reportType === 'corte' && (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        {options.zona && options.zona.length > 0 && (
+                          <NativeSelect
+                            placeholder="Todas las zonas"
+                            value={filters.zona || ''}
+                            onChange={v => handleFilterChange('zona', v)}
+                            options={options.zona}
+                          />
+                        )}
+                        {options.centro_operativo && options.centro_operativo.length > 0 && (
+                          <NativeSelect
+                            placeholder="Todos los centros"
+                            value={filters.centro_operativo || ''}
+                            onChange={v => handleFilterChange('centro_operativo', v)}
+                            options={options.centro_operativo}
+                          />
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {options.comuna && options.comuna.length > 0 && (
+                          <NativeSelect
+                            placeholder="Todas las comunas"
+                            value={filters.comuna || ''}
+                            onChange={v => handleFilterChange('comuna', v)}
+                            options={options.comuna}
+                          />
+                        )}
+                        {options.situacion_encontrada && options.situacion_encontrada.length > 0 && (
+                          <NativeSelect
+                            placeholder="Todas las situaciones"
+                            value={filters.situacion_encontrada || ''}
+                            onChange={v => handleFilterChange('situacion_encontrada', v)}
+                            options={options.situacion_encontrada}
                           />
                         )}
                       </div>
