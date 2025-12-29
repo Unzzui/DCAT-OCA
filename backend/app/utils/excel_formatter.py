@@ -184,3 +184,20 @@ def get_column_config_calidad() -> Dict[str, Dict[str, Any]]:
         "fecha": {"width": 14},
         "observaciones": {"width": 40},
     }
+
+
+def get_column_config_corte() -> Dict[str, Dict[str, Any]]:
+    """Configuración de columnas para informe de Corte y Reposición."""
+    return {
+        "suministro": {"width": 15},
+        "nombre": {"width": 25},
+        "direccion": {"width": 35},
+        "comuna": {"width": 15},
+        "zona": {"width": 12},
+        "centro_operativo": {"width": 18},
+        "inspector": {"width": 20},
+        "situacion_encontrada": {"width": 22},
+        "motivo_multa": {"width": 20},
+        "fecha": {"width": 14},
+        "observaciones": {"width": 40},
+    }

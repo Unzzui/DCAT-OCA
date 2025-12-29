@@ -5,6 +5,7 @@ from .excel_formatter import (
     get_column_config_lecturas,
     get_column_config_teleco,
     get_column_config_calidad,
+    get_column_config_corte,
 )
 
 __all__ = [
@@ -13,4 +14,5 @@ __all__ = [
     "get_column_config_lecturas",
     "get_column_config_teleco",
     "get_column_config_calidad",
+    "get_column_config_corte",
 ]
