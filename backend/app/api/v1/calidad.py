@@ -9,6 +9,7 @@ import pandas as pd
 import io
 from ...schemas.user import User
 from ...services import calidad_service
+from ...utils.excel_formatter import create_formatted_excel, get_column_config_calidad
 from ..deps import get_current_user
 
 router = APIRouter(prefix="/calidad", tags=["Control de Perdidas"])
@@ -152,10 +153,12 @@ async def export_data(
         raise HTTPException(status_code=404, detail="No hay datos para exportar")
 
     if format == "excel":
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Control Perdidas')
-        output.seek(0)
+        output = create_formatted_excel(
+            df=df,
+            sheet_name="Control Perdidas",
+            title="Informe de Control de Pérdidas",
+            column_config=get_column_config_calidad()
+        )
 
         return StreamingResponse(
             output,

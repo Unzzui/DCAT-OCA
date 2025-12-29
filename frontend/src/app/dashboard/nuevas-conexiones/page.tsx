@@ -19,6 +19,7 @@ import {
   SelectItem,
   TextInput,
   DateRangePicker,
+  DateRangePickerItem,
   DateRangePickerValue,
   BarChart,
   DonutChart,
@@ -37,6 +38,17 @@ import { ExportOverlay } from '@/components/ui/ExportOverlay'
 import { ExportDropdown } from '@/components/ui/ExportDropdown'
 import { formatNumber } from '@/lib/utils'
 import { api } from '@/lib/api'
+import { es } from 'date-fns/locale'
+import { startOfMonth, startOfYear, subDays } from 'date-fns'
+
+// Opciones de rango de fechas en español
+const dateRangeOptions = [
+  { value: 'today', text: 'Hoy', from: new Date(), to: new Date() },
+  { value: 'last7', text: 'Últimos 7 días', from: subDays(new Date(), 7), to: new Date() },
+  { value: 'last30', text: 'Últimos 30 días', from: subDays(new Date(), 30), to: new Date() },
+  { value: 'month', text: 'Este mes', from: startOfMonth(new Date()), to: new Date() },
+  { value: 'year', text: 'Este año', from: startOfYear(new Date()), to: new Date() },
+]
 
 interface Stats {
   total: number
@@ -1136,7 +1148,21 @@ export default function InformeNNCCPage() {
                         value={dateRange}
                         onValueChange={setDateRange}
                         placeholder="Fechas"
-                      />
+                        locale={es}
+                        selectPlaceholder="Seleccionar"
+                        enableSelect
+                      >
+                        {dateRangeOptions.map((option) => (
+                          <DateRangePickerItem
+                            key={option.value}
+                            value={option.value}
+                            from={option.from}
+                            to={option.to}
+                          >
+                            {option.text}
+                          </DateRangePickerItem>
+                        ))}
+                      </DateRangePicker>
                     </div>
                   </div>
                   <div className="flex gap-2">

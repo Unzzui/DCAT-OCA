@@ -6,6 +6,7 @@ import io
 from ...schemas.user import User
 from ...schemas.nuevas_conexiones import PaginatedResponse, InspeccionesStats
 from ...services import data_service
+from ...utils.excel_formatter import create_formatted_excel, get_column_config_nncc
 from ..deps import get_current_user, require_editor
 
 router = APIRouter(prefix="/nuevas-conexiones", tags=["Informe NNCC"])
@@ -145,10 +146,12 @@ async def export_data(
         raise HTTPException(status_code=404, detail="No hay datos para exportar")
 
     if format == "excel":
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Informe NNCC')
-        output.seek(0)
+        output = create_formatted_excel(
+            df=df,
+            sheet_name="Informe NNCC",
+            title="Informe de Nuevas Conexiones",
+            column_config=get_column_config_nncc()
+        )
 
         return StreamingResponse(
             output,
