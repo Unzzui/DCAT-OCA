@@ -8,6 +8,22 @@ import os
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
+
+def read_data_file(base_name: str, data_dir: str, encoding: str = 'utf-8') -> pd.DataFrame:
+    """
+    Lee un archivo de datos, prefiriendo Parquet sobre CSV para mejor rendimiento.
+    """
+    parquet_dir = os.path.join(data_dir, "parquet")
+    parquet_path = os.path.join(parquet_dir, f"{base_name}.parquet")
+    csv_path = os.path.join(data_dir, f"{base_name}.csv")
+
+    if os.path.exists(parquet_path):
+        return pd.read_parquet(parquet_path)
+    elif os.path.exists(csv_path):
+        return pd.read_csv(csv_path, encoding=encoding, low_memory=False)
+    else:
+        return pd.DataFrame()
+
 # Global dataframe cache
 _df_lecturas_cache: Optional[pd.DataFrame] = None
 
@@ -16,7 +32,7 @@ META_CUMPLIMIENTO_PLAZO = 90
 
 
 def load_lecturas_data(force_reload: bool = False) -> pd.DataFrame:
-    """Load CSV data for Lecturas into a pandas DataFrame with caching."""
+    """Load data for Lecturas into a pandas DataFrame with caching."""
     global _df_lecturas_cache
 
     if _df_lecturas_cache is not None and not force_reload:
@@ -27,38 +43,32 @@ def load_lecturas_data(force_reload: bool = False) -> pd.DataFrame:
         "data"
     )
 
-    # Archivos de lecturas
-    ordenes_path = os.path.join(base_path, "informe_lectura_ORDENES_ORDENES.csv")
-    sec_path = os.path.join(base_path, "informe_lectura_SEC_SEC.csv")
-    virtual_visit_path = os.path.join(base_path, "informe_lectura_VIRTUAL_VIRTUAL VISIT.csv")
-    visita_virtual_path = os.path.join(base_path, "informe_lectura_VIRTUAL_VISITA VIRTUAL.csv")
-
     dfs = []
 
     # Cargar ORDENES
-    if os.path.exists(ordenes_path):
-        df_ordenes = pd.read_csv(ordenes_path, encoding='utf-8', low_memory=False)
+    df_ordenes = read_data_file("informe_lectura_ORDENES_ORDENES", base_path)
+    if not df_ordenes.empty:
         df_ordenes['origen'] = 'ORDENES'
         dfs.append(df_ordenes)
         print(f"Loaded ORDENES: {len(df_ordenes)} records")
 
     # Cargar SEC
-    if os.path.exists(sec_path):
-        df_sec = pd.read_csv(sec_path, encoding='utf-8', low_memory=False)
+    df_sec = read_data_file("informe_lectura_SEC_SEC", base_path)
+    if not df_sec.empty:
         df_sec['origen'] = 'SEC'
         dfs.append(df_sec)
         print(f"Loaded SEC: {len(df_sec)} records")
 
     # Cargar VIRTUAL VISIT
-    if os.path.exists(virtual_visit_path):
-        df_vv = pd.read_csv(virtual_visit_path, encoding='utf-8', low_memory=False)
+    df_vv = read_data_file("informe_lectura_VIRTUAL_VIRTUAL VISIT", base_path)
+    if not df_vv.empty:
         df_vv['origen'] = 'VISITA VIRTUAL'
         dfs.append(df_vv)
         print(f"Loaded VIRTUAL VISIT: {len(df_vv)} records")
 
     # Cargar VISITA VIRTUAL
-    if os.path.exists(visita_virtual_path):
-        df_visita = pd.read_csv(visita_virtual_path, encoding='utf-8', low_memory=False)
+    df_visita = read_data_file("informe_lectura_VIRTUAL_VISITA VIRTUAL", base_path)
+    if not df_visita.empty:
         df_visita['origen'] = 'VISITA VIRTUAL'
         dfs.append(df_visita)
         print(f"Loaded VISITA VIRTUAL: {len(df_visita)} records")

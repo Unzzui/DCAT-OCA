@@ -8,6 +8,22 @@ import os
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
+
+def read_data_file(base_name: str, data_dir: str, encoding: str = 'utf-8') -> pd.DataFrame:
+    """
+    Lee un archivo de datos, prefiriendo Parquet sobre CSV para mejor rendimiento.
+    """
+    parquet_dir = os.path.join(data_dir, "parquet")
+    parquet_path = os.path.join(parquet_dir, f"{base_name}.parquet")
+    csv_path = os.path.join(data_dir, f"{base_name}.csv")
+
+    if os.path.exists(parquet_path):
+        return pd.read_parquet(parquet_path)
+    elif os.path.exists(csv_path):
+        return pd.read_csv(csv_path, encoding=encoding, low_memory=False)
+    else:
+        return pd.DataFrame()
+
 # Global dataframe cache
 _df_teleco_cache: Optional[pd.DataFrame] = None
 
@@ -16,7 +32,7 @@ META_APROBACION = 50
 
 
 def load_teleco_data(force_reload: bool = False) -> pd.DataFrame:
-    """Load CSV data for Telecomunicaciones into a pandas DataFrame with caching."""
+    """Load data for Telecomunicaciones into a pandas DataFrame with caching."""
     global _df_teleco_cache
 
     if _df_teleco_cache is not None and not force_reload:
@@ -27,14 +43,13 @@ def load_teleco_data(force_reload: bool = False) -> pd.DataFrame:
         "data"
     )
 
-    csv_path = os.path.join(base_path, "informe_teleco.csv")
+    df = read_data_file("informe_teleco", base_path, encoding='utf-8-sig')
 
-    if not os.path.exists(csv_path):
-        print(f"Teleco CSV not found: {csv_path}")
+    if df.empty:
+        print(f"Teleco data not found")
         _df_teleco_cache = pd.DataFrame()
         return _df_teleco_cache
 
-    df = pd.read_csv(csv_path, encoding='utf-8-sig', low_memory=False)
     print(f"Loaded Teleco: {len(df)} records")
 
     # Mapeo de columnas

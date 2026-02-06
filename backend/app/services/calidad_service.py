@@ -8,6 +8,32 @@ import numpy as np
 import os
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+from pathlib import Path
+
+
+def read_data_file(base_name: str, data_dir: str, encoding: str = 'utf-8') -> pd.DataFrame:
+    """
+    Lee un archivo de datos, prefiriendo Parquet sobre CSV para mejor rendimiento.
+
+    Args:
+        base_name: Nombre base del archivo (sin extensión)
+        data_dir: Directorio donde buscar el archivo
+        encoding: Encoding para CSV (ignorado para Parquet)
+
+    Returns:
+        DataFrame con los datos
+    """
+    parquet_dir = os.path.join(data_dir, "parquet")
+    parquet_path = os.path.join(parquet_dir, f"{base_name}.parquet")
+    csv_path = os.path.join(data_dir, f"{base_name}.csv")
+
+    # Preferir Parquet si existe
+    if os.path.exists(parquet_path):
+        return pd.read_parquet(parquet_path)
+    elif os.path.exists(csv_path):
+        return pd.read_csv(csv_path, encoding=encoding, low_memory=False)
+    else:
+        return pd.DataFrame()
 
 # Global dataframe caches
 _df_calidad_mono_cache: Optional[pd.DataFrame] = None
@@ -31,13 +57,12 @@ def load_calidad_mono(force_reload: bool = False) -> pd.DataFrame:
     if _df_calidad_mono_cache is not None and not force_reload:
         return _df_calidad_mono_cache
 
-    path = os.path.join(get_data_path(), "informe_calidad_mono_BASE.csv")
+    df = read_data_file("informe_calidad_mono_BASE", get_data_path())
 
-    if not os.path.exists(path):
-        print(f"File not found: {path}")
+    if df.empty:
+        print(f"File not found: informe_calidad_mono_BASE")
         return pd.DataFrame()
 
-    df = pd.read_csv(path, encoding='utf-8', low_memory=False)
     df['tipo_sistema'] = 'MONOFASICO'
     df['id'] = range(1, len(df) + 1)
 
@@ -56,13 +81,12 @@ def load_calidad_tri(force_reload: bool = False) -> pd.DataFrame:
     if _df_calidad_tri_cache is not None and not force_reload:
         return _df_calidad_tri_cache
 
-    path = os.path.join(get_data_path(), "informe_calidad_tri_BASE.csv")
+    df = read_data_file("informe_calidad_tri_BASE", get_data_path())
 
-    if not os.path.exists(path):
-        print(f"File not found: {path}")
+    if df.empty:
+        print(f"File not found: informe_calidad_tri_BASE")
         return pd.DataFrame()
 
-    df = pd.read_csv(path, encoding='utf-8', low_memory=False)
     df['tipo_sistema'] = 'TRIFASICO'
     df['id'] = range(1, len(df) + 1)
 
@@ -81,12 +105,11 @@ def load_inspecciones_mono(force_reload: bool = False) -> pd.DataFrame:
     if _df_inspecciones_mono_cache is not None and not force_reload:
         return _df_inspecciones_mono_cache
 
-    path = os.path.join(get_data_path(), "informe_calidad_mono_INSPECCIONES.csv")
+    df = read_data_file("informe_calidad_mono_INSPECCIONES", get_data_path())
 
-    if not os.path.exists(path):
+    if df.empty:
         return pd.DataFrame()
 
-    df = pd.read_csv(path, encoding='utf-8', low_memory=False)
     df['tipo_sistema'] = 'MONOFASICO'
 
     _df_inspecciones_mono_cache = df
@@ -101,12 +124,11 @@ def load_inspecciones_tri(force_reload: bool = False) -> pd.DataFrame:
     if _df_inspecciones_tri_cache is not None and not force_reload:
         return _df_inspecciones_tri_cache
 
-    path = os.path.join(get_data_path(), "informe_calidad_tri_INSPECCIONES.csv")
+    df = read_data_file("informe_calidad_tri_INSPECCIONES", get_data_path())
 
-    if not os.path.exists(path):
+    if df.empty:
         return pd.DataFrame()
 
-    df = pd.read_csv(path, encoding='utf-8', low_memory=False)
     df['tipo_sistema'] = 'TRIFASICO'
 
     _df_inspecciones_tri_cache = df
@@ -705,9 +727,9 @@ def get_calidad_evolucion(
     # Crear periodo (anio-mes)
     df_filtered['periodo'] = df_filtered['anio'].astype(str) + '-' + df_filtered['mes'].astype(str).str.zfill(2)
 
-    # Agrupar por periodo
+    # Agrupar por periodo (filtrar NaN)
     evolucion = []
-    periodos = sorted(df_filtered['periodo'].unique())
+    periodos = sorted([p for p in df_filtered['periodo'].unique() if p and 'nan' not in str(p).lower()])
 
     for periodo in periodos:
         df_periodo = df_filtered[df_filtered['periodo'] == periodo]
@@ -728,7 +750,7 @@ def get_calidad_evolucion(
 
         # Nombre del mes
         partes = periodo.split('-')
-        mes_num = int(partes[1])
+        mes_num = int(float(partes[1]))
         meses_nombres = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
         periodo_label = f"{meses_nombres[mes_num]} {partes[0]}"
 

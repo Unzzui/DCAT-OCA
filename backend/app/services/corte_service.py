@@ -9,6 +9,22 @@ import os
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
+
+def read_data_file(base_name: str, data_dir: str, encoding: str = 'utf-8') -> pd.DataFrame:
+    """
+    Lee un archivo de datos, prefiriendo Parquet sobre CSV para mejor rendimiento.
+    """
+    parquet_dir = os.path.join(data_dir, "parquet")
+    parquet_path = os.path.join(parquet_dir, f"{base_name}.parquet")
+    csv_path = os.path.join(data_dir, f"{base_name}.csv")
+
+    if os.path.exists(parquet_path):
+        return pd.read_parquet(parquet_path)
+    elif os.path.exists(csv_path):
+        return pd.read_csv(csv_path, encoding=encoding, low_memory=False)
+    else:
+        return pd.DataFrame()
+
 # Global dataframe cache
 _df_corte_cache: Optional[pd.DataFrame] = None
 
@@ -22,19 +38,18 @@ def get_data_path() -> str:
 
 
 def load_corte_data(force_reload: bool = False) -> pd.DataFrame:
-    """Load corte data from CSV."""
+    """Load corte data from Parquet/CSV."""
     global _df_corte_cache
 
     if _df_corte_cache is not None and not force_reload:
         return _df_corte_cache
 
-    path = os.path.join(get_data_path(), "informe_corte.csv")
+    df = read_data_file("informe_corte", get_data_path())
 
-    if not os.path.exists(path):
-        print(f"File not found: {path}")
+    if df.empty:
+        print(f"File not found: informe_corte")
         return pd.DataFrame()
 
-    df = pd.read_csv(path, encoding='utf-8', low_memory=False)
     df['id'] = range(1, len(df) + 1)
 
     # Normalizar columnas

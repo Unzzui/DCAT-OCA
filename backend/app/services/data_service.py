@@ -4,6 +4,22 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 from ..core.config import settings
 
+
+def read_data_file(base_name: str, data_dir: str, encoding: str = 'utf-8') -> pd.DataFrame:
+    """
+    Lee un archivo de datos, prefiriendo Parquet sobre CSV para mejor rendimiento.
+    """
+    parquet_dir = os.path.join(data_dir, "parquet")
+    parquet_path = os.path.join(parquet_dir, f"{base_name}.parquet")
+    csv_path = os.path.join(data_dir, f"{base_name}.csv")
+
+    if os.path.exists(parquet_path):
+        return pd.read_parquet(parquet_path)
+    elif os.path.exists(csv_path):
+        return pd.read_csv(csv_path, encoding=encoding, low_memory=False)
+    else:
+        return pd.DataFrame()
+
 # Global dataframe cache
 _df_cache: Optional[pd.DataFrame] = None
 
@@ -15,13 +31,14 @@ def load_data(force_reload: bool = False) -> pd.DataFrame:
         return _df_cache
 
     # Archivo NNCC
-    csv_path = os.path.join(
+    data_dir = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-        "data",
-        "2025-05 INFORME NNCC (2024-2029) DIC 2025.csv"
+        "data"
     )
 
-    if not os.path.exists(csv_path):
+    df = read_data_file("2025-05 INFORME NNCC (2024-2029) DIC 2025", data_dir)
+
+    if df.empty:
         # Create empty dataframe with expected columns
         _df_cache = pd.DataFrame(columns=[
             "id", "vta", "cliente", "nombre_cliente", "direccion", "comuna",
@@ -33,8 +50,7 @@ def load_data(force_reload: bool = False) -> pd.DataFrame:
         ])
         return _df_cache
 
-    print(f"Loading data from: {csv_path}")
-    df = pd.read_csv(csv_path, encoding='utf-8', low_memory=False)
+    print(f"Loading NNCC data: {len(df)} records")
 
     # Standardize column names for easier access
     column_mapping = {
@@ -66,9 +82,9 @@ def load_data(force_reload: bool = False) -> pd.DataFrame:
     rename_dict = {k: v for k, v in column_mapping.items() if k in df.columns}
     df = df.rename(columns=rename_dict)
 
-    # Parse dates
+    # Parse dates (usar format='mixed' porque el CSV tiene formatos mixtos: YYYY-MM-DD y YYYY-MM-DD HH:MM:SS)
     if "fecha_inspeccion" in df.columns:
-        df["fecha_inspeccion"] = pd.to_datetime(df["fecha_inspeccion"], errors='coerce')
+        df["fecha_inspeccion"] = pd.to_datetime(df["fecha_inspeccion"], format='mixed', errors='coerce')
         # Agregar mes y año para filtrado
         df['mes'] = df['fecha_inspeccion'].dt.month
         df['anio'] = df['fecha_inspeccion'].dt.year
