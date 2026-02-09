@@ -84,14 +84,29 @@ export default function DashboardLayout({
         return
       }
 
+      // Si allowed_modules no está definido, permitir todo (compatibilidad con usuarios existentes)
+      if (!user.allowed_modules || !Array.isArray(user.allowed_modules)) {
+        setHasAccess(true)
+        return
+      }
+
       // Buscar el módulo correspondiente a la ruta actual
       const moduleId = ROUTE_TO_MODULE[pathname || '']
       if (moduleId) {
         const access = hasModuleAccess(moduleId)
         setHasAccess(access)
-        if (!access) {
-          // Redirigir al dashboard si no tiene acceso
+        if (!access && pathname !== '/dashboard') {
+          // Redirigir al dashboard solo si no estamos ya en el dashboard
           router.push('/dashboard')
+        } else if (!access && pathname === '/dashboard') {
+          // Si no tiene acceso al dashboard, buscar el primer módulo disponible
+          const firstAvailableModule = Object.entries(ROUTE_TO_MODULE).find(
+            ([route, mod]) => user.allowed_modules?.includes(mod) && route !== '/dashboard'
+          )
+          if (firstAvailableModule) {
+            router.push(firstAvailableModule[0])
+          }
+          // Si no hay módulos disponibles, mantener hasAccess en false para mostrar mensaje
         }
       } else {
         // Si no hay mapeo, permitir acceso (por compatibilidad)

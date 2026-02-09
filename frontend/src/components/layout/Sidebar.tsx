@@ -71,14 +71,17 @@ export function Sidebar() {
   const isExpanded = isNormal
 
   // Filtrar navegación según módulos permitidos del usuario
-  // Los admins siempre ven todos los módulos
-  const userModules = user?.allowed_modules || []
+  const userModules = user?.allowed_modules
   const isAdmin = user?.role === 'admin'
+  // Si allowed_modules no está definido o no es array, mostrar todos (compatibilidad)
+  const hasModuleRestrictions = Array.isArray(userModules)
 
   const filterNavigation = (items: NavItem[]): NavItem[] => {
     return items.filter(item => {
       // Si es admin, mostrar todo
       if (isAdmin) return true
+      // Si no hay restricciones de módulos (allowed_modules no definido), mostrar todo
+      if (!hasModuleRestrictions) return true
       // Si no tiene moduleId, mostrar siempre (por compatibilidad)
       if (!item.moduleId) return true
       // Verificar si el usuario tiene acceso al módulo

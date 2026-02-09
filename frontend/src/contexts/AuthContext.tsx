@@ -57,8 +57,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user) return false
     // Los admins siempre tienen acceso a todo
     if (user.role === 'admin') return true
+    // Si allowed_modules no está definido o es null, permitir acceso a todo (compatibilidad)
+    if (!user.allowed_modules || !Array.isArray(user.allowed_modules)) return true
+    // Si es un array vacío, no tiene acceso a nada
+    if (user.allowed_modules.length === 0) return false
     // Verificar si el módulo está en la lista de permitidos
-    return user.allowed_modules?.includes(moduleId) ?? false
+    return user.allowed_modules.includes(moduleId)
   }
 
   return (
