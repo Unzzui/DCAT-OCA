@@ -213,8 +213,7 @@ export default function TelecomunicacionesPage() {
     }
   }, [])
 
-  const initialLoadDone = useRef(false)
-  const skipNextRefresh = useRef(false)
+  const renderCount = useRef(0)
 
   useEffect(() => {
     const loadAll = async () => {
@@ -240,21 +239,19 @@ export default function TelecomunicacionesPage() {
       ])
       setStats(statsRes)
       setData(dataRes)
-
-      skipNextRefresh.current = true
       setGlobalMes(initMes)
       setGlobalAnio(initAnio)
-
       setLoading(false)
-      initialLoadDone.current = true
     }
     loadAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
-    if (!initialLoadDone.current) return
-    if (skipNextRefresh.current) { skipNextRefresh.current = false; return }
+    if (renderCount.current < 2) {
+      renderCount.current++
+      return
+    }
     const doRefresh = async () => {
       setRefreshing(true)
       await Promise.all([fetchStats(), fetchData()])

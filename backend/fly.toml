@@ -14,6 +14,14 @@ primary_region = 'gru'
   auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
+  concurrency_limit = 200
+  processes = ['app']
+
+[processes]
+  app = "uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2"
+
+[deploy]
+  strategy = "immediate"
 
 [checks]
   [checks.health]
@@ -21,6 +29,7 @@ primary_region = 'gru'
     type = 'http'
     interval = '30s'
     timeout = '5s'
+    grace_period = '15s'
     path = '/health'
 
 [[vm]]

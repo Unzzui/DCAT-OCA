@@ -1,10 +1,20 @@
 import asyncio
+import re
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from .core.config import settings
 from .api.v1.router import api_router
 from .db import session as db_session
+
+
+class NormalizePathMiddleware(BaseHTTPMiddleware):
+    """Collapse double slashes in request paths (e.g. //api/v1 -> /api/v1)."""
+    async def dispatch(self, request: Request, call_next):
+        if "//" in request.scope["path"]:
+            request.scope["path"] = re.sub(r"/+", "/", request.scope["path"])
+        return await call_next(request)
 
 
 async def _warmup_cache():
@@ -44,6 +54,9 @@ app = FastAPI(
     redoc_url="/redoc" if settings.DEBUG else None,
     lifespan=lifespan,
 )
+
+# Normalize double slashes in paths
+app.add_middleware(NormalizePathMiddleware)
 
 # CORS middleware
 app.add_middleware(
