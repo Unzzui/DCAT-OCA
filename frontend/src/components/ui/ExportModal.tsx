@@ -46,6 +46,12 @@ const MESES = [
   { value: '12', label: 'Diciembre' },
 ]
 
+const MES_NUM_TO_NAME: Record<string, string> = {
+  '1': 'ENERO', '2': 'FEBRERO', '3': 'MARZO', '4': 'ABRIL',
+  '5': 'MAYO', '6': 'JUNIO', '7': 'JULIO', '8': 'AGOSTO',
+  '9': 'SEPTIEMBRE', '10': 'OCTUBRE', '11': 'NOVIEMBRE', '12': 'DICIEMBRE',
+}
+
 // Componente Select nativo estilizado - Estilo corporativo OCA
 interface NativeSelectProps {
   label?: string
@@ -125,7 +131,14 @@ export function ExportModal({ isOpen, onClose, reportType, reportName }: ExportM
 
       // Agregar filtros
       Object.entries(filters).forEach(([key, value]) => {
-        if (value) params[key] = value
+        if (value) {
+          // Medidores cruzados espera mes como nombre (ENERO, FEBRERO, etc.)
+          if (key === 'mes' && reportType === 'medidores_cruzados') {
+            params[key] = MES_NUM_TO_NAME[value] || value
+          } else {
+            params[key] = value
+          }
+        }
       })
 
       if (dateRange.from) params.fecha_desde = dateRange.from
@@ -295,9 +308,15 @@ export function ExportModal({ isOpen, onClose, reportType, reportName }: ExportM
         medidores_cruzados: '/api/v1/medidores-cruzados/export',
       }
 
+      const processedFilters = { ...filters }
+      // Medidores cruzados espera mes como nombre (ENERO, FEBRERO, etc.)
+      if (reportType === 'medidores_cruzados' && processedFilters.mes) {
+        processedFilters.mes = MES_NUM_TO_NAME[processedFilters.mes] || processedFilters.mes
+      }
+
       const params: Record<string, string | number | boolean | undefined> = {
         format,
-        ...filters,
+        ...processedFilters,
       }
 
       if (dateRange.from) params.fecha_desde = dateRange.from
