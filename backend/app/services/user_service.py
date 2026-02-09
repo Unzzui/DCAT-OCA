@@ -5,7 +5,7 @@ from sqlalchemy import select, update, delete
 from sqlalchemy.exc import IntegrityError
 
 from ..schemas.user import User, UserCreate, UserInDB, UserUpdate
-from ..core.security import get_password_hash, verify_password
+from ..core.security import get_password_hash, verify_password, verify_password_async
 from ..db.models import UserModel
 from ..core.config import settings
 
@@ -16,32 +16,42 @@ from ..core.config import settings
 _USERS_DB: dict[str, UserInDB] = {}
 _use_db = bool(settings.DATABASE_URL)
 
+# Pre-computed bcrypt hashes for default users (avoids blocking on startup)
+# These are bcrypt hashes - regenerate if passwords change
+_DEFAULT_HASHES = {
+    "Admin123": "$2b$12$vrtCUgCS.UDlaLKol4dJMukfCKN2AvREQva4qmJQZKdqTwYHEnqiW",
+    "Diego123": "$2b$12$YQvYQiEtRP7zAghRxlgf2OlL0J9l5Y4O8Ap.eGdzAUBkUaDbpPAOC",
+    "Editor123": "$2b$12$rBzuTxYLKIbMJV0vfhwoMuSTjU1YoKgjpoa.moHou5zN7Ojw0H30O",
+    "Viewer123": "$2b$12$MH5HBG/TC6k3qNrroUK9OuAgvVcqyVUkcBklAXMDzOW0v0XM1K2Zm",
+}
+
 
 def _init_default_users_memory():
     """Initialize in-memory users for development without DB."""
+    now = datetime.utcnow()
     if "admin@ocaglobal.com" not in _USERS_DB:
         _USERS_DB["admin@ocaglobal.com"] = UserInDB(
             id=1, email="admin@ocaglobal.com", full_name="Administrador",
-            role="admin", is_active=True, created_at=datetime.utcnow(),
-            hashed_password=get_password_hash("Admin123"),
+            role="admin", is_active=True, created_at=now,
+            hashed_password=_DEFAULT_HASHES["Admin123"],
         )
     if "diego.bravob@ocaglobal.com" not in _USERS_DB:
         _USERS_DB["diego.bravob@ocaglobal.com"] = UserInDB(
             id=2, email="diego.bravob@ocaglobal.com", full_name="Diego Bravo",
-            role="admin", is_active=True, created_at=datetime.utcnow(),
-            hashed_password=get_password_hash("Diego123"),
+            role="admin", is_active=True, created_at=now,
+            hashed_password=_DEFAULT_HASHES["Diego123"],
         )
     if "editor@ocaglobal.com" not in _USERS_DB:
         _USERS_DB["editor@ocaglobal.com"] = UserInDB(
             id=3, email="editor@ocaglobal.com", full_name="Editor",
-            role="editor", is_active=True, created_at=datetime.utcnow(),
-            hashed_password=get_password_hash("Editor123"),
+            role="editor", is_active=True, created_at=now,
+            hashed_password=_DEFAULT_HASHES["Editor123"],
         )
     if "viewer@ocaglobal.com" not in _USERS_DB:
         _USERS_DB["viewer@ocaglobal.com"] = UserInDB(
             id=4, email="viewer@ocaglobal.com", full_name="Visualizador",
-            role="viewer", is_active=True, created_at=datetime.utcnow(),
-            hashed_password=get_password_hash("Viewer123"),
+            role="viewer", is_active=True, created_at=now,
+            hashed_password=_DEFAULT_HASHES["Viewer123"],
         )
 
 
@@ -73,7 +83,8 @@ async def authenticate_user_db(db: AsyncSession, email: str, password: str) -> O
     user = await get_user_by_email_db(db, email)
     if not user:
         return None
-    if not verify_password(password, user.hashed_password):
+    # Use async verification to avoid blocking the event loop
+    if not await verify_password_async(password, user.hashed_password):
         return None
     # Update last_login
     await db.execute(
@@ -183,6 +194,16 @@ def authenticate_user(email: str, password: str) -> Optional[UserInDB]:
     if not user:
         return None
     if not verify_password(password, user.hashed_password):
+        return None
+    return user
+
+
+async def authenticate_user_memory_async(email: str, password: str) -> Optional[UserInDB]:
+    """Async version for in-memory fallback - doesn't block event loop."""
+    user = get_user_by_email(email)
+    if not user:
+        return None
+    if not await verify_password_async(password, user.hashed_password):
         return None
     return user
 

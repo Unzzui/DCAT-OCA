@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...schemas.user import User, LoginRequest
 from ...schemas.token import Token
 from ...services.user_service import (
-    authenticate_user, authenticate_user_db,
+    authenticate_user_db, authenticate_user_memory_async,
 )
 from ...core.security import create_access_token
 from ...core.config import settings
@@ -26,7 +26,7 @@ async def login(credentials: LoginRequest):
         async with db_session.AsyncSessionLocal() as session:
             user = await authenticate_user_db(session, credentials.email, credentials.password)
     else:
-        user = authenticate_user(credentials.email, credentials.password)
+        user = await authenticate_user_memory_async(credentials.email, credentials.password)
 
     if not user:
         raise HTTPException(

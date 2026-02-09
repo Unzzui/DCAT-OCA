@@ -30,20 +30,33 @@ async def _warmup_cache():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    if settings.DATABASE_URL:
-        db_session.init_async_engine()
-        print("Database connection initialized")
-        # Pre-warm cache in background
-        asyncio.create_task(_warmup_cache())
-    else:
-        print("No DATABASE_URL configured, using file-based data")
+    import sys
+    print("=" * 50, flush=True)
+    print("Starting DCAT-OCA API server...", flush=True)
+    print(f"Python version: {sys.version}", flush=True)
+    print(f"DATABASE_URL configured: {bool(settings.DATABASE_URL)}", flush=True)
+
+    try:
+        if settings.DATABASE_URL:
+            db_session.init_async_engine()
+            print("Database engine created", flush=True)
+            # Pre-warm cache in background
+            asyncio.create_task(_warmup_cache())
+        else:
+            print("No DATABASE_URL configured, using in-memory data", flush=True)
+    except Exception as e:
+        print(f"WARNING: Database init error (continuing anyway): {e}", flush=True)
+
+    print("Server ready to accept connections on 0.0.0.0:8000", flush=True)
+    print("=" * 50, flush=True)
 
     yield
 
     # Shutdown
+    print("Shutting down server...", flush=True)
     if db_session.async_engine:
         await db_session.async_engine.dispose()
-        print("Database connection closed")
+        print("Database connection closed", flush=True)
 
 
 app = FastAPI(
