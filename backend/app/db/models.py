@@ -282,6 +282,17 @@ class TelecomunicacionesModel(Base):
     anio = Column(Integer, nullable=True)
 
 
+class SettingsModel(Base):
+    __tablename__ = "settings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String(100), unique=True, nullable=False, index=True)
+    value = Column(Text, nullable=True)
+    description = Column(String(255), nullable=True)
+    category = Column(String(50), nullable=True, index=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class CorteReposicionModel(Base):
     __tablename__ = "corte_reposicion"
 

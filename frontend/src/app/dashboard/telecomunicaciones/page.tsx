@@ -29,7 +29,7 @@ import {
   TabPanels,
   ProgressBar,
 } from '@tremor/react'
-import { Search, Filter, CheckCircle, XCircle, TrendingUp, TrendingDown, Info, AlertCircle, Building2, Users, MapPin, FileCheck } from 'lucide-react'
+import { Search, Filter, CheckCircle, XCircle, TrendingUp, TrendingDown, Info, AlertCircle, Building2, Users, MapPin, FileCheck, Activity, AlertOctagon } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { ExportOverlay } from '@/components/ui/ExportOverlay'
 import { ExportDropdown } from '@/components/ui/ExportDropdown'
@@ -94,6 +94,58 @@ interface PaginatedResponse {
   pages: number
 }
 
+interface AnalisisOperacional {
+  responsabilidad_rechazos: {
+    red: number
+    cliente: number
+    mantenimiento: number
+    otros: number
+    total?: number
+  }
+  reinspecciones: {
+    casos: number
+    inspecciones: number
+    promedio: number
+    nunca_aprobados: number
+    multiples_rechazos: number
+  }
+  calidad_planos_empresa: Array<{
+    empresa: string
+    total: number
+    con_plano: number
+    sin_plano: number
+    incompleto: number
+    pct_con_plano: number
+  }>
+  ranking_inspectores: Array<{
+    inspector: string
+    total: number
+    aprobados: number
+    rechazados: number
+    tasa_aprobacion: number
+    postes: number
+    obs_vacias: number
+    calidad_doc: string
+  }>
+  tiempos_resolucion: Array<{
+    empresa: string
+    casos: number
+    dias_promedio: number
+    dias_max: number
+  }>
+  calidad_documentacion: {
+    sin_observacion: number
+    observacion_generica: number
+    total: number
+    pct_problemas: number
+  }
+  alertas: Array<{
+    tipo: string
+    titulo: string
+    mensaje: string
+  }>
+}
+
 const META_APROBACION = 50
 
 const MESES = [
@@ -129,6 +181,7 @@ export default function TelecomunicacionesPage() {
   // Data
   const [stats, setStats] = useState<Stats | null>(null)
   const [data, setData] = useState<PaginatedResponse | null>(null)
+  const [analisisOp, setAnalisisOp] = useState<AnalisisOperacional | null>(null)
   const [empresas, setEmpresas] = useState<string[]>([])
   const [comunas, setComunas] = useState<string[]>([])
   const [inspectors, setInspectors] = useState<Array<{ inspector: string; cantidad: number; tasa_aprobacion: number; postes: number }>>([])
@@ -213,6 +266,22 @@ export default function TelecomunicacionesPage() {
     }
   }, [])
 
+  const fetchAnalisisOperacional = useCallback(async () => {
+    try {
+      const params = new URLSearchParams()
+      if (globalEmpresa) params.append('empresa', globalEmpresa)
+      if (globalComuna) params.append('comuna', globalComuna)
+      if (globalMes) params.append('mes', globalMes)
+      if (globalAnio) params.append('anio', globalAnio)
+
+      const url = `/api/v1/teleco/analisis-operacional${params.toString() ? '?' + params.toString() : ''}`
+      const response = await api.get<AnalisisOperacional>(url)
+      setAnalisisOp(response)
+    } catch (error) {
+      console.error('Error fetching analisis operacional:', error)
+    }
+  }, [globalEmpresa, globalComuna, globalMes, globalAnio])
+
   const renderCount = useRef(0)
 
   useEffect(() => {
@@ -233,12 +302,14 @@ export default function TelecomunicacionesPage() {
       if (initMes) dataParams.append('mes', initMes)
       if (initAnio) dataParams.append('anio', initAnio)
 
-      const [statsRes, dataRes] = await Promise.all([
+      const [statsRes, dataRes, analisisRes] = await Promise.all([
         api.get<Stats>(`/api/v1/teleco/stats${statsParams.toString() ? '?' + statsParams.toString() : ''}`),
         api.get<PaginatedResponse>(`/api/v1/teleco?${dataParams.toString()}`),
+        api.get<AnalisisOperacional>(`/api/v1/teleco/analisis-operacional${statsParams.toString() ? '?' + statsParams.toString() : ''}`),
       ])
       setStats(statsRes)
       setData(dataRes)
+      setAnalisisOp(analisisRes)
       setGlobalMes(initMes)
       setGlobalAnio(initAnio)
       setLoading(false)
@@ -254,11 +325,11 @@ export default function TelecomunicacionesPage() {
     }
     const doRefresh = async () => {
       setRefreshing(true)
-      await Promise.all([fetchStats(), fetchData()])
+      await Promise.all([fetchStats(), fetchData(), fetchAnalisisOperacional()])
       setRefreshing(false)
     }
     doRefresh()
-  }, [fetchStats, fetchData])
+  }, [fetchStats, fetchData, fetchAnalisisOperacional])
 
   const getResultadoBadge = (resultado: string) => {
     if (!resultado) return <span className="text-gray-400">-</span>
@@ -508,6 +579,7 @@ export default function TelecomunicacionesPage() {
             <Tab icon={Building2}>Resumen Ejecutivo</Tab>
             <Tab icon={MapPin}>Análisis Territorial</Tab>
             <Tab icon={TrendingUp}>Tendencias</Tab>
+            <Tab icon={Activity}>Análisis Operacional</Tab>
             <Tab icon={Search}>Datos</Tab>
           </TabList>
           <TabPanels>
@@ -775,64 +847,286 @@ export default function TelecomunicacionesPage() {
               </Card>
             </TabPanel>
 
+            {/* Análisis Operacional Panel */}
+            <TabPanel>
+              {/* Alertas Operacionales */}
+              {analisisOp?.alertas && analisisOp.alertas.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                  {analisisOp.alertas.map((alerta, idx) => (
+                    <Card
+                      key={idx}
+                      decoration="left"
+                      decorationColor={alerta.tipo === 'danger' ? 'rose' : alerta.tipo === 'warning' ? 'amber' : 'blue'}
+                    >
+                      <Flex alignItems="start" className="gap-3">
+                        <div className={`p-2 rounded-lg ${
+                          alerta.tipo === 'danger' ? 'bg-rose-100' :
+                          alerta.tipo === 'warning' ? 'bg-amber-100' : 'bg-blue-100'
+                        }`}>
+                          <AlertOctagon className={
+                            alerta.tipo === 'danger' ? 'text-rose-600' :
+                            alerta.tipo === 'warning' ? 'text-amber-600' : 'text-blue-600'
+                          } size={20} />
+                        </div>
+                        <div>
+                          <Title className="text-base">{alerta.titulo}</Title>
+                          <Text className="mt-1">{alerta.mensaje}</Text>
+                        </div>
+                      </Flex>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                {/* Responsabilidad de Rechazos */}
+                <Card>
+                  <Title>Responsabilidad de Rechazos</Title>
+                  <Text className="text-gray-500">Clasificación de causas de rechazo</Text>
+                  <div className="mt-4 space-y-3">
+                    {analisisOp?.responsabilidad_rechazos && (
+                      <>
+                        <div className="flex justify-between items-center p-3 bg-red-50 rounded-lg">
+                          <span className="text-sm font-medium">Problemas de Red</span>
+                          <span className="text-lg font-bold text-red-600">{analisisOp.responsabilidad_rechazos.red}</span>
+                        </div>
+                        <div className="flex justify-between items-center p-3 bg-amber-50 rounded-lg">
+                          <span className="text-sm font-medium">Responsabilidad Cliente</span>
+                          <span className="text-lg font-bold text-amber-600">{analisisOp.responsabilidad_rechazos.cliente}</span>
+                        </div>
+                        <div className="flex justify-between items-center p-3 bg-orange-50 rounded-lg">
+                          <span className="text-sm font-medium">Mantenimiento Pendiente</span>
+                          <span className="text-lg font-bold text-orange-600">{analisisOp.responsabilidad_rechazos.mantenimiento}</span>
+                        </div>
+                        <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                          <span className="text-sm font-medium">Otros</span>
+                          <span className="text-lg font-bold text-gray-600">{analisisOp.responsabilidad_rechazos.otros}</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </Card>
+
+                {/* Reinspecciones */}
+                <Card>
+                  <Title>Análisis de Reinspecciones</Title>
+                  <Text className="text-gray-500">Casos con múltiples inspecciones</Text>
+                  <div className="mt-4 grid grid-cols-2 gap-4">
+                    <div className="text-center p-4 bg-blue-50 rounded-lg">
+                      <p className="text-2xl font-bold text-blue-600">{analisisOp?.reinspecciones.casos || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">Casos Reinspeccionados</p>
+                    </div>
+                    <div className="text-center p-4 bg-violet-50 rounded-lg">
+                      <p className="text-2xl font-bold text-violet-600">{analisisOp?.reinspecciones.promedio || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">Promedio Inspecciones</p>
+                    </div>
+                    <div className="text-center p-4 bg-rose-50 rounded-lg">
+                      <p className="text-2xl font-bold text-rose-600">{analisisOp?.reinspecciones.nunca_aprobados || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">Nunca Aprobados</p>
+                    </div>
+                    <div className="text-center p-4 bg-amber-50 rounded-lg">
+                      <p className="text-2xl font-bold text-amber-600">{analisisOp?.reinspecciones.multiples_rechazos || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">Múltiples Rechazos</p>
+                    </div>
+                  </div>
+                </Card>
+              </div>
+
+              {/* Calidad de Documentación */}
+              <Card className="mb-6">
+                <Title>Calidad de Documentación</Title>
+                <Text className="text-gray-500">Análisis de observaciones en inspecciones</Text>
+                <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="text-center p-4 bg-gray-50 rounded-lg">
+                    <p className="text-2xl font-bold text-gray-700">{analisisOp?.calidad_documentacion.total || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">Total Inspecciones</p>
+                  </div>
+                  <div className="text-center p-4 bg-rose-50 rounded-lg">
+                    <p className="text-2xl font-bold text-rose-600">{analisisOp?.calidad_documentacion.sin_observacion || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">Sin Observación</p>
+                  </div>
+                  <div className="text-center p-4 bg-amber-50 rounded-lg">
+                    <p className="text-2xl font-bold text-amber-600">{analisisOp?.calidad_documentacion.observacion_generica || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">Obs. Genérica</p>
+                  </div>
+                  <div className="text-center p-4 bg-red-50 rounded-lg">
+                    <p className="text-2xl font-bold text-red-600">{analisisOp?.calidad_documentacion.pct_problemas || 0}%</p>
+                    <p className="text-xs text-gray-500 mt-1">% Con Problemas</p>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Ranking de Inspectores */}
+              <Card className="mb-6">
+                <Title>Ranking de Inspectores</Title>
+                <Text className="text-gray-500">Desempeño por inspector (mín. 5 inspecciones)</Text>
+                <Table className="mt-4">
+                  <TableHead>
+                    <TableRow>
+                      <TableHeaderCell>Inspector</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Total</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Aprobados</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Tasa Aprob.</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Postes</TableHeaderCell>
+                      <TableHeaderCell>Calidad Doc.</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {analisisOp?.ranking_inspectores.slice(0, 10).map((insp) => (
+                      <TableRow key={insp.inspector}>
+                        <TableCell className="font-medium">{insp.inspector}</TableCell>
+                        <TableCell className="text-right">{insp.total}</TableCell>
+                        <TableCell className="text-right text-emerald-600">{insp.aprobados}</TableCell>
+                        <TableCell className="text-right">
+                          <span className={insp.tasa_aprobacion >= 50 ? 'text-emerald-600' : 'text-rose-600'}>
+                            {insp.tasa_aprobacion}%
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">{formatNumber(insp.postes)}</TableCell>
+                        <TableCell>
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            insp.calidad_doc === 'buena' ? 'bg-emerald-100 text-emerald-700' :
+                            insp.calidad_doc === 'regular' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
+                          }`}>
+                            {insp.calidad_doc}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Card>
+
+              {/* Calidad de Planos por Empresa */}
+              <Card className="mb-6">
+                <Title>Calidad de Documentación por Empresa</Title>
+                <Text className="text-gray-500">Estado de planos presentados</Text>
+                <Table className="mt-4">
+                  <TableHead>
+                    <TableRow>
+                      <TableHeaderCell>Empresa</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Total</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Con Plano</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Sin Plano</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Incompleto</TableHeaderCell>
+                      <TableHeaderCell className="text-right">% Con Plano</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {analisisOp?.calidad_planos_empresa.map((emp) => (
+                      <TableRow key={emp.empresa}>
+                        <TableCell className="font-medium">{emp.empresa}</TableCell>
+                        <TableCell className="text-right">{emp.total}</TableCell>
+                        <TableCell className="text-right text-emerald-600">{emp.con_plano}</TableCell>
+                        <TableCell className="text-right text-rose-600">{emp.sin_plano}</TableCell>
+                        <TableCell className="text-right text-amber-600">{emp.incompleto}</TableCell>
+                        <TableCell className="text-right">
+                          <span className={emp.pct_con_plano >= 80 ? 'text-emerald-600' : emp.pct_con_plano >= 50 ? 'text-amber-600' : 'text-rose-600'}>
+                            {emp.pct_con_plano}%
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Card>
+
+              {/* Tiempos de Resolución */}
+              {analisisOp?.tiempos_resolucion && analisisOp.tiempos_resolucion.length > 0 && (
+                <Card>
+                  <Title>Tiempos de Resolución por Empresa</Title>
+                  <Text className="text-gray-500">Días entre primera y última inspección de casos con reinspección</Text>
+                  <Table className="mt-4">
+                    <TableHead>
+                      <TableRow>
+                        <TableHeaderCell>Empresa</TableHeaderCell>
+                        <TableHeaderCell className="text-right">Casos</TableHeaderCell>
+                        <TableHeaderCell className="text-right">Días Promedio</TableHeaderCell>
+                        <TableHeaderCell className="text-right">Días Máximo</TableHeaderCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {analisisOp.tiempos_resolucion.map((t) => (
+                        <TableRow key={t.empresa}>
+                          <TableCell className="font-medium">{t.empresa}</TableCell>
+                          <TableCell className="text-right">{t.casos}</TableCell>
+                          <TableCell className="text-right">
+                            <span className={t.dias_promedio <= 30 ? 'text-emerald-600' : t.dias_promedio <= 60 ? 'text-amber-600' : 'text-rose-600'}>
+                              {t.dias_promedio}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right">{t.dias_max}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Card>
+              )}
+            </TabPanel>
+
             {/* Datos Panel */}
             <TabPanel>
               {/* Filtros de tabla */}
-              <Card className="mb-6">
-                <Flex className="flex-wrap gap-4">
-                  <div className="flex-1 min-w-[200px]">
-                    <TextInput
-                      icon={Search}
-                      placeholder="Buscar..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
+              <Card className="mb-4">
+                <Flex justifyContent="between" alignItems="end" className="flex-wrap gap-4">
+                  <div className="flex flex-wrap gap-3">
+                    <div className="w-56">
+                      <TextInput
+                        icon={Search}
+                        placeholder="Buscar caso..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                      />
+                    </div>
+                    <div className="w-36">
+                      <Select value={resultado} onValueChange={setResultado} placeholder="Resultado">
+                        <SelectItem value="">Todos</SelectItem>
+                        <SelectItem value="APROBADO">Aprobado</SelectItem>
+                        <SelectItem value="RECHAZADO">Rechazado</SelectItem>
+                      </Select>
+                    </div>
+                    <div className="w-36">
+                      <Select value={tienePlano} onValueChange={setTienePlano} placeholder="Plano">
+                        <SelectItem value="">Todos</SelectItem>
+                        <SelectItem value="SI">Con Plano</SelectItem>
+                        <SelectItem value="NO">Sin Plano</SelectItem>
+                        <SelectItem value="INCOMPLETO">Incompleto</SelectItem>
+                      </Select>
+                    </div>
+                    <DateRangePicker
+                      className="w-56"
+                      value={dateRange}
+                      onValueChange={setDateRange}
+                      placeholder="Rango de fechas"
+                      locale={es}
+                      selectPlaceholder="Seleccionar"
+                      enableSelect
+                    >
+                      {dateRangeOptions.map((option) => (
+                        <DateRangePickerItem
+                          key={option.value}
+                          value={option.value}
+                          from={option.from}
+                          to={option.to}
+                        >
+                          {option.text}
+                        </DateRangePickerItem>
+                      ))}
+                    </DateRangePicker>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="secondary" size="sm" onClick={clearFilters}>
+                      <Filter size={14} />
+                      Limpiar
+                    </Button>
+                    <ExportDropdown
+                      onExport={handleExport}
+                      loading={exporting}
+                      loadingFormat={exporting ? exportFormat : null}
+                      totalRecords={data?.total}
+                      hasFilters={hasActiveFilters}
                     />
                   </div>
-                  <div className="w-40">
-                    <Select value={resultado} onValueChange={setResultado} placeholder="Resultado">
-                      <SelectItem value="">Todos</SelectItem>
-                      <SelectItem value="APROBADO">Aprobado</SelectItem>
-                      <SelectItem value="RECHAZADO">Rechazado</SelectItem>
-                    </Select>
-                  </div>
-                  <div className="w-40">
-                    <Select value={tienePlano} onValueChange={setTienePlano} placeholder="Plano">
-                      <SelectItem value="">Todos</SelectItem>
-                      <SelectItem value="SI">Con Plano</SelectItem>
-                      <SelectItem value="NO">Sin Plano</SelectItem>
-                      <SelectItem value="INCOMPLETO">Incompleto</SelectItem>
-                    </Select>
-                  </div>
-                  <DateRangePicker
-                    className="w-64"
-                    value={dateRange}
-                    onValueChange={setDateRange}
-                    placeholder="Rango de fechas"
-                    locale={es}
-                    selectPlaceholder="Seleccionar"
-                    enableSelect
-                  >
-                    {dateRangeOptions.map((option) => (
-                      <DateRangePickerItem
-                        key={option.value}
-                        value={option.value}
-                        from={option.from}
-                        to={option.to}
-                      >
-                        {option.text}
-                      </DateRangePickerItem>
-                    ))}
-                  </DateRangePicker>
-                  <Button variant="secondary" onClick={clearFilters}>
-                    Limpiar
-                  </Button>
-                  <ExportDropdown
-                    onExport={handleExport}
-                    loading={exporting}
-                    loadingFormat={exporting ? exportFormat : null}
-                    totalRecords={data?.total}
-                    hasFilters={hasActiveFilters}
-                  />
                 </Flex>
               </Card>
 

@@ -4,10 +4,21 @@ Optimizado: queries SQL directas en vez de cargar DataFrames completos.
 """
 
 import asyncio
+from datetime import datetime, date
 from typing import Optional, Dict, Any, List
 from ..core.config import settings
 from .db_queries import execute_query, execute_scalar
 from .cache import cached
+
+
+def _parse_date(date_str: Optional[str]) -> Optional[date]:
+    """Convert date string to date object for asyncpg compatibility."""
+    if not date_str:
+        return None
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 META_APROBACION = 50
 
@@ -43,11 +54,15 @@ def _build_where(
         conditions.append("UPPER(tiene_plano_norm) = UPPER(:tiene_plano)")
         params["tiene_plano"] = tiene_plano
     if fecha_desde:
-        conditions.append("fecha_inspeccion >= :fecha_desde")
-        params["fecha_desde"] = fecha_desde
+        parsed_desde = _parse_date(fecha_desde)
+        if parsed_desde:
+            conditions.append("fecha_inspeccion >= :fecha_desde")
+            params["fecha_desde"] = parsed_desde
     if fecha_hasta:
-        conditions.append("fecha_inspeccion <= :fecha_hasta")
-        params["fecha_hasta"] = fecha_hasta
+        parsed_hasta = _parse_date(fecha_hasta)
+        if parsed_hasta:
+            conditions.append("fecha_inspeccion <= :fecha_hasta")
+            params["fecha_hasta"] = parsed_hasta
     if mes:
         conditions.append("mes = :mes")
         params["mes"] = mes
@@ -350,6 +365,256 @@ async def get_teleco_stats(
         "por_resultado": por_resultado, "por_mes": por_mes, "por_tiene_plano": por_tiene_plano,
         "motivos_rechazo": motivos_rechazo, "evolucion_mensual": evolucion_mensual,
         "comparativas": comparativas, "insights": insights,
+    }
+
+
+@cached(ttl_seconds=60)
+async def get_teleco_analisis_operacional(
+    empresa: Optional[str] = None, comuna: Optional[str] = None,
+    fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None,
+    mes: Optional[int] = None, anio: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Análisis operacional detallado: rechazos, reinspecciones, responsabilidades."""
+    where, params = _build_where(
+        empresa=empresa, comuna=comuna, fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta, mes=mes, anio=anio,
+    )
+
+    (
+        rechazos_resp,
+        reinspecciones,
+        calidad_plano,
+        inspector_ranking,
+        empresa_tiempos,
+        obs_vacias,
+    ) = await asyncio.gather(
+        # 1) Clasificación de rechazos por responsabilidad
+        execute_query(f"""
+            SELECT
+                COUNT(*) FILTER (WHERE
+                    LOWER(observacion) LIKE '%%saturacion%%' OR
+                    LOWER(observacion) LIKE '%%espacio aereo%%' OR
+                    LOWER(observacion) LIKE '%%sobrecarga%%' OR
+                    LOWER(observacion) LIKE '%%mas de 10%%' OR
+                    LOWER(observacion) LIKE '%%mas de 13%%'
+                ) as resp_red,
+                COUNT(*) FILTER (WHERE
+                    LOWER(observacion) LIKE '%%sin plano%%' OR
+                    LOWER(observacion) LIKE '%%plano incompleto%%' OR
+                    LOWER(observacion) LIKE '%%falta documentacion%%' OR
+                    LOWER(observacion) LIKE '%%ya realizados%%' OR
+                    UPPER(tiene_plano_norm) = 'NO'
+                ) as resp_cliente,
+                COUNT(*) FILTER (WHERE
+                    LOWER(observacion) LIKE '%%vegetacion%%' OR
+                    LOWER(observacion) LIKE '%%poda%%' OR
+                    LOWER(observacion) LIKE '%%escombro%%' OR
+                    LOWER(observacion) LIKE '%%cruceta%%' OR
+                    LOWER(observacion) LIKE '%%mal estado%%'
+                ) as resp_mantenimiento,
+                COUNT(*) as total_rechazados
+            FROM telecomunicaciones
+            WHERE {where} AND UPPER(resultado) = 'RECHAZADO'
+        """, params),
+        # 2) Casos con múltiples inspecciones (reinspecciones)
+        execute_query(f"""
+            WITH casos_multiples AS (
+                SELECT family_case, COUNT(*) as inspecciones,
+                    COUNT(*) FILTER (WHERE UPPER(resultado) = 'APROBADO') as aprobados,
+                    COUNT(*) FILTER (WHERE UPPER(resultado) = 'RECHAZADO') as rechazados,
+                    MAX(fecha_inspeccion) as ultima_inspeccion,
+                    MIN(fecha_inspeccion) as primera_inspeccion
+                FROM telecomunicaciones
+                WHERE {where} AND family_case IS NOT NULL
+                GROUP BY family_case
+                HAVING COUNT(*) > 1
+            )
+            SELECT
+                COUNT(*) as casos_reinspeccionados,
+                SUM(inspecciones) as total_inspecciones,
+                ROUND(AVG(inspecciones)::numeric, 1) as promedio_reinspecciones,
+                COUNT(*) FILTER (WHERE aprobados = 0) as nunca_aprobados,
+                COUNT(*) FILTER (WHERE rechazados >= 2) as multiples_rechazos
+            FROM casos_multiples
+        """, params),
+        # 3) Calidad de planos por empresa
+        execute_query(f"""
+            SELECT empresa_corta as empresa,
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE UPPER(tiene_plano_norm) = 'SI') as con_plano,
+                COUNT(*) FILTER (WHERE UPPER(tiene_plano_norm) = 'NO') as sin_plano,
+                COUNT(*) FILTER (WHERE UPPER(tiene_plano_norm) IN ('INCOMPLETO','PARCIAL')) as incompleto,
+                ROUND(COUNT(*) FILTER (WHERE UPPER(tiene_plano_norm) = 'SI') * 100.0 / NULLIF(COUNT(*), 0), 1) as pct_con_plano
+            FROM telecomunicaciones
+            WHERE {where} AND TRIM(COALESCE(empresa_corta,'')) != ''
+            GROUP BY empresa_corta
+            ORDER BY total DESC
+            LIMIT 10
+        """, params),
+        # 4) Ranking de inspectores (mejores y peores)
+        execute_query(f"""
+            SELECT inspector,
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE UPPER(resultado) = 'APROBADO') as aprobados,
+                COUNT(*) FILTER (WHERE UPPER(resultado) = 'RECHAZADO') as rechazados,
+                ROUND(COUNT(*) FILTER (WHERE UPPER(resultado) = 'APROBADO') * 100.0 / NULLIF(COUNT(*), 0), 1) as tasa_aprobacion,
+                COALESCE(SUM(cantidad_postes), 0) as postes,
+                COUNT(*) FILTER (WHERE TRIM(COALESCE(observacion,'')) = '') as obs_vacias
+            FROM telecomunicaciones
+            WHERE {where} AND TRIM(COALESCE(inspector,'')) != ''
+            GROUP BY inspector
+            HAVING COUNT(*) >= 5
+            ORDER BY tasa_aprobacion DESC
+        """, params),
+        # 5) Tiempos promedio por empresa (días entre primera y última inspección del caso)
+        execute_query(f"""
+            WITH tiempos AS (
+                SELECT empresa_corta,
+                    family_case,
+                    EXTRACT(DAY FROM MAX(fecha_inspeccion) - MIN(fecha_inspeccion)) as dias
+                FROM telecomunicaciones
+                WHERE {where} AND family_case IS NOT NULL AND fecha_inspeccion IS NOT NULL
+                GROUP BY empresa_corta, family_case
+                HAVING COUNT(*) > 1
+            )
+            SELECT empresa_corta as empresa,
+                COUNT(DISTINCT family_case) as casos,
+                ROUND(AVG(dias)::numeric, 1) as dias_promedio,
+                MAX(dias) as dias_max
+            FROM tiempos
+            WHERE TRIM(COALESCE(empresa_corta,'')) != ''
+            GROUP BY empresa_corta
+            ORDER BY casos DESC
+            LIMIT 10
+        """, params),
+        # 6) Observaciones vacías o genéricas
+        execute_query(f"""
+            SELECT
+                COUNT(*) FILTER (WHERE TRIM(COALESCE(observacion,'')) = '') as sin_observacion,
+                COUNT(*) FILTER (WHERE
+                    LOWER(observacion) LIKE '%%sin novedad%%' OR
+                    LOWER(observacion) LIKE '%%ok%%' OR
+                    LOWER(observacion) = 'aprobado' OR
+                    LOWER(observacion) = 'rechazado' OR
+                    LENGTH(TRIM(COALESCE(observacion,''))) < 10
+                ) as observacion_generica,
+                COUNT(*) as total
+            FROM telecomunicaciones WHERE {where}
+        """, params),
+    )
+
+    # Procesar responsabilidad de rechazos
+    resp_rechazos = {"red": 0, "cliente": 0, "mantenimiento": 0, "otros": 0}
+    if rechazos_resp and rechazos_resp[0]["total_rechazados"] > 0:
+        r = rechazos_resp[0]
+        total_rech = r["total_rechazados"]
+        resp_rechazos = {
+            "red": r["resp_red"] or 0,
+            "cliente": r["resp_cliente"] or 0,
+            "mantenimiento": r["resp_mantenimiento"] or 0,
+            "otros": max(0, total_rech - (r["resp_red"] or 0) - (r["resp_cliente"] or 0) - (r["resp_mantenimiento"] or 0)),
+            "total": total_rech,
+        }
+
+    # Procesar reinspecciones
+    reins = {"casos": 0, "inspecciones": 0, "promedio": 0, "nunca_aprobados": 0, "multiples_rechazos": 0}
+    if reinspecciones and reinspecciones[0]["casos_reinspeccionados"]:
+        ri = reinspecciones[0]
+        reins = {
+            "casos": ri["casos_reinspeccionados"] or 0,
+            "inspecciones": ri["total_inspecciones"] or 0,
+            "promedio": float(ri["promedio_reinspecciones"]) if ri["promedio_reinspecciones"] else 0,
+            "nunca_aprobados": ri["nunca_aprobados"] or 0,
+            "multiples_rechazos": ri["multiples_rechazos"] or 0,
+        }
+
+    # Ranking de inspectores
+    ranking = []
+    for r in (inspector_ranking or []):
+        ranking.append({
+            "inspector": r["inspector"],
+            "total": r["total"],
+            "aprobados": r["aprobados"],
+            "rechazados": r["rechazados"],
+            "tasa_aprobacion": float(r["tasa_aprobacion"]) if r["tasa_aprobacion"] else 0,
+            "postes": r["postes"],
+            "obs_vacias": r["obs_vacias"],
+            "calidad_doc": "buena" if r["obs_vacias"] < r["total"] * 0.1 else "regular" if r["obs_vacias"] < r["total"] * 0.3 else "mala",
+        })
+
+    # Calidad de planos por empresa
+    calidad = []
+    for r in (calidad_plano or []):
+        calidad.append({
+            "empresa": r["empresa"],
+            "total": r["total"],
+            "con_plano": r["con_plano"],
+            "sin_plano": r["sin_plano"],
+            "incompleto": r["incompleto"],
+            "pct_con_plano": float(r["pct_con_plano"]) if r["pct_con_plano"] else 0,
+        })
+
+    # Tiempos de resolución
+    tiempos = []
+    for r in (empresa_tiempos or []):
+        tiempos.append({
+            "empresa": r["empresa"],
+            "casos": r["casos"],
+            "dias_promedio": float(r["dias_promedio"]) if r["dias_promedio"] else 0,
+            "dias_max": r["dias_max"] or 0,
+        })
+
+    # Calidad de documentación
+    doc = {"sin_observacion": 0, "observacion_generica": 0, "total": 0, "pct_problemas": 0}
+    if obs_vacias and obs_vacias[0]["total"] > 0:
+        o = obs_vacias[0]
+        problemas = (o["sin_observacion"] or 0) + (o["observacion_generica"] or 0)
+        doc = {
+            "sin_observacion": o["sin_observacion"] or 0,
+            "observacion_generica": o["observacion_generica"] or 0,
+            "total": o["total"],
+            "pct_problemas": round(problemas / o["total"] * 100, 1) if o["total"] > 0 else 0,
+        }
+
+    # Generar alertas operacionales
+    alertas = []
+    if reins["nunca_aprobados"] > 5:
+        alertas.append({
+            "tipo": "danger",
+            "titulo": f"{reins['nunca_aprobados']} casos nunca aprobados",
+            "mensaje": "Casos con múltiples inspecciones que nunca han sido aprobados. Requieren revisión.",
+        })
+    if resp_rechazos.get("cliente", 0) > resp_rechazos.get("total", 1) * 0.3:
+        alertas.append({
+            "tipo": "warning",
+            "titulo": "Alto % de rechazos por cliente",
+            "mensaje": f"{resp_rechazos['cliente']} rechazos por documentación incompleta o trabajos ya realizados.",
+        })
+    if doc["pct_problemas"] > 20:
+        alertas.append({
+            "tipo": "warning",
+            "titulo": "Calidad de documentación baja",
+            "mensaje": f"{doc['pct_problemas']}% de inspecciones con observaciones vacías o genéricas.",
+        })
+
+    # Identificar peores inspectores
+    peores = [r for r in ranking if r["tasa_aprobacion"] < 40 and r["total"] >= 10]
+    if peores:
+        nombres = ", ".join([p["inspector"] for p in peores[:3]])
+        alertas.append({
+            "tipo": "warning",
+            "titulo": "Inspectores con baja aprobación",
+            "mensaje": f"Inspectores con tasa < 40%: {nombres}. Revisar capacitación.",
+        })
+
+    return {
+        "responsabilidad_rechazos": resp_rechazos,
+        "reinspecciones": reins,
+        "calidad_planos_empresa": calidad,
+        "ranking_inspectores": ranking,
+        "tiempos_resolucion": tiempos,
+        "calidad_documentacion": doc,
+        "alertas": alertas,
     }
 
 

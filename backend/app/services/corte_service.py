@@ -465,3 +465,298 @@ async def get_corte_evolucion(
             "tasa_multa": round(r["con_multa"] / t * 100, 1) if t > 0 else 0,
         })
     return evolucion
+
+
+@cached(ttl_seconds=60)
+async def get_corte_analisis_operacional(
+    zona: Optional[str] = None,
+    centro_operativo: Optional[str] = None,
+    comuna: Optional[str] = None,
+    mes: Optional[int] = None,
+    anio: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Análisis operacional detallado: causas de mal ejecución, multas, factibilidad."""
+    where, params = _build_where(
+        zona=zona, centro_operativo=centro_operativo, comuna=comuna, mes=mes, anio=anio,
+    )
+
+    (
+        causas_no_ejecucion,
+        analisis_multas,
+        factibilidad_detalle,
+        ranking_inspectores,
+        zonas_problematicas,
+        giros_problematicos,
+        situaciones_frecuentes,
+    ) = await asyncio.gather(
+        # 1) Análisis detallado de causas de no ejecución
+        execute_query(f"""
+            SELECT
+                COUNT(*) FILTER (WHERE UPPER(situacion_encontrada) LIKE '%%NO UBICADO%%') as no_ubicado,
+                COUNT(*) FILTER (WHERE UPPER(situacion_encontrada) LIKE '%%ZONA PELIGROSA%%') as zona_peligrosa,
+                COUNT(*) FILTER (WHERE UPPER(situacion_encontrada) LIKE '%%CLIENTE PAGO%%' OR UPPER(situacion_encontrada) LIKE '%%PAGO%%') as cliente_pago,
+                COUNT(*) FILTER (WHERE UPPER(situacion_encontrada) LIKE '%%MEDIDOR RETIRADO%%') as medidor_retirado,
+                COUNT(*) FILTER (WHERE UPPER(situacion_encontrada) LIKE '%%YA CORTADO%%') as ya_cortado,
+                COUNT(*) FILTER (WHERE UPPER(situacion_encontrada) LIKE '%%CONVENIO%%') as con_convenio,
+                COUNT(*) FILTER (WHERE UPPER(situacion_encontrada) LIKE '%%RECLAMO%%') as con_reclamo,
+                COUNT(*) FILTER (WHERE UPPER(es_factible_cortar) = 'NO') as no_factible,
+                COUNT(*) FILTER (WHERE UPPER(motivo_multa) LIKE '%%NO EJECUTADO%%') as no_ejecutado,
+                COUNT(*) as total
+            FROM corte_reposicion WHERE {where}
+        """, params),
+        # 2) Análisis de multas por motivo
+        execute_query(f"""
+            SELECT motivo_multa,
+                COUNT(*) as cantidad,
+                COUNT(*) FILTER (WHERE UPPER(multa) = 'SI') as con_multa
+            FROM corte_reposicion
+            WHERE {where} AND TRIM(COALESCE(motivo_multa,'')) != ''
+            GROUP BY motivo_multa
+            ORDER BY cantidad DESC
+        """, params),
+        # 3) Detalle de factibilidad de corte
+        execute_query(f"""
+            SELECT
+                COUNT(*) FILTER (WHERE UPPER(es_factible_cortar) = 'SI') as factible,
+                COUNT(*) FILTER (WHERE UPPER(es_factible_cortar) = 'NO') as no_factible,
+                COUNT(*) FILTER (WHERE
+                    UPPER(es_factible_cortar) = 'NO' AND
+                    UPPER(situacion_encontrada) LIKE '%%ZONA PELIGROSA%%'
+                ) as no_factible_zona_peligrosa,
+                COUNT(*) FILTER (WHERE
+                    UPPER(es_factible_cortar) = 'NO' AND
+                    UPPER(situacion_encontrada) LIKE '%%NO UBICADO%%'
+                ) as no_factible_no_ubicado,
+                COUNT(*) FILTER (WHERE
+                    UPPER(es_factible_cortar) = 'SI' AND
+                    UPPER(motivo_multa) LIKE '%%NO EJECUTADO%%'
+                ) as factible_no_ejecutado,
+                COUNT(*) as total
+            FROM corte_reposicion WHERE {where}
+        """, params),
+        # 4) Ranking de inspectores con métricas detalladas
+        execute_query(f"""
+            SELECT inspector,
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE UPPER(motivo_multa) LIKE '%%BIEN EJECUTADO%%') as bien_ejecutados,
+                COUNT(*) FILTER (WHERE UPPER(motivo_multa) LIKE '%%NO EJECUTADO%%') as no_ejecutados,
+                COUNT(*) FILTER (WHERE UPPER(multa) = 'SI') as con_multa,
+                COUNT(*) FILTER (WHERE UPPER(es_factible_cortar) = 'NO') as no_factibles,
+                COUNT(*) FILTER (WHERE UPPER(situacion_encontrada) LIKE '%%NO UBICADO%%') as no_ubicados,
+                ROUND(COUNT(*) FILTER (WHERE UPPER(motivo_multa) LIKE '%%BIEN EJECUTADO%%') * 100.0 / NULLIF(COUNT(*), 0), 1) as tasa_calidad,
+                ROUND(COUNT(*) FILTER (WHERE UPPER(multa) = 'SI') * 100.0 / NULLIF(COUNT(*), 0), 1) as tasa_multa
+            FROM corte_reposicion
+            WHERE {where} AND TRIM(COALESCE(inspector,'')) != ''
+            GROUP BY inspector
+            ORDER BY total DESC
+        """, params),
+        # 5) Zonas problemáticas (alta tasa de no ejecución o multas)
+        execute_query(f"""
+            SELECT zona,
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE UPPER(motivo_multa) LIKE '%%BIEN EJECUTADO%%') as bien_ejecutados,
+                COUNT(*) FILTER (WHERE UPPER(multa) = 'SI') as con_multa,
+                COUNT(*) FILTER (WHERE UPPER(situacion_encontrada) LIKE '%%ZONA PELIGROSA%%') as zonas_peligrosas,
+                COUNT(*) FILTER (WHERE UPPER(situacion_encontrada) LIKE '%%NO UBICADO%%') as no_ubicados,
+                ROUND(COUNT(*) FILTER (WHERE UPPER(motivo_multa) LIKE '%%BIEN EJECUTADO%%') * 100.0 / NULLIF(COUNT(*), 0), 1) as tasa_calidad
+            FROM corte_reposicion
+            WHERE {where} AND TRIM(COALESCE(zona,'')) != ''
+            GROUP BY zona
+            HAVING COUNT(*) >= 10
+            ORDER BY tasa_calidad ASC
+        """, params),
+        # 6) Giros con mayor tasa de no ubicados o problemas
+        execute_query(f"""
+            SELECT giro,
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE UPPER(situacion_encontrada) LIKE '%%NO UBICADO%%') as no_ubicados,
+                COUNT(*) FILTER (WHERE UPPER(motivo_multa) LIKE '%%NO EJECUTADO%%') as no_ejecutados,
+                COUNT(*) FILTER (WHERE UPPER(es_factible_cortar) = 'NO') as no_factibles,
+                ROUND(COUNT(*) FILTER (WHERE UPPER(situacion_encontrada) LIKE '%%NO UBICADO%%') * 100.0 / NULLIF(COUNT(*), 0), 1) as pct_no_ubicados
+            FROM corte_reposicion
+            WHERE {where} AND TRIM(COALESCE(giro,'')) != ''
+            GROUP BY giro
+            HAVING COUNT(*) >= 5
+            ORDER BY pct_no_ubicados DESC
+            LIMIT 15
+        """, params),
+        # 7) Situaciones encontradas más frecuentes vs esperadas
+        execute_query(f"""
+            SELECT situacion_a_inspeccionar as esperada,
+                situacion_encontrada as encontrada,
+                COUNT(*) as cantidad,
+                COUNT(*) FILTER (WHERE situacion_a_inspeccionar != situacion_encontrada) as discrepancias
+            FROM corte_reposicion
+            WHERE {where}
+                AND TRIM(COALESCE(situacion_a_inspeccionar,'')) != ''
+                AND TRIM(COALESCE(situacion_encontrada,'')) != ''
+            GROUP BY situacion_a_inspeccionar, situacion_encontrada
+            ORDER BY cantidad DESC
+            LIMIT 20
+        """, params),
+    )
+
+    # Procesar causas de no ejecución
+    causas = {
+        "no_ubicado": 0, "zona_peligrosa": 0, "cliente_pago": 0,
+        "medidor_retirado": 0, "ya_cortado": 0, "con_convenio": 0,
+        "con_reclamo": 0, "no_factible": 0, "no_ejecutado": 0, "total": 0,
+    }
+    if causas_no_ejecucion and causas_no_ejecucion[0]["total"] > 0:
+        c = causas_no_ejecucion[0]
+        causas = {
+            "no_ubicado": c["no_ubicado"] or 0,
+            "zona_peligrosa": c["zona_peligrosa"] or 0,
+            "cliente_pago": c["cliente_pago"] or 0,
+            "medidor_retirado": c["medidor_retirado"] or 0,
+            "ya_cortado": c["ya_cortado"] or 0,
+            "con_convenio": c["con_convenio"] or 0,
+            "con_reclamo": c["con_reclamo"] or 0,
+            "no_factible": c["no_factible"] or 0,
+            "no_ejecutado": c["no_ejecutado"] or 0,
+            "total": c["total"],
+        }
+
+    # Procesar análisis de multas
+    multas = []
+    for r in (analisis_multas or []):
+        multas.append({
+            "motivo": r["motivo_multa"],
+            "cantidad": r["cantidad"],
+            "con_multa": r["con_multa"],
+            "pct_multa": round(r["con_multa"] / r["cantidad"] * 100, 1) if r["cantidad"] > 0 else 0,
+        })
+
+    # Procesar factibilidad
+    factibilidad = {
+        "factible": 0, "no_factible": 0, "no_factible_zona_peligrosa": 0,
+        "no_factible_no_ubicado": 0, "factible_no_ejecutado": 0, "total": 0,
+    }
+    if factibilidad_detalle and factibilidad_detalle[0]["total"] > 0:
+        f = factibilidad_detalle[0]
+        factibilidad = {
+            "factible": f["factible"] or 0,
+            "no_factible": f["no_factible"] or 0,
+            "no_factible_zona_peligrosa": f["no_factible_zona_peligrosa"] or 0,
+            "no_factible_no_ubicado": f["no_factible_no_ubicado"] or 0,
+            "factible_no_ejecutado": f["factible_no_ejecutado"] or 0,
+            "total": f["total"],
+        }
+
+    # Ranking de inspectores
+    inspectores = []
+    for r in (ranking_inspectores or []):
+        inspectores.append({
+            "inspector": r["inspector"],
+            "total": r["total"],
+            "bien_ejecutados": r["bien_ejecutados"],
+            "no_ejecutados": r["no_ejecutados"],
+            "con_multa": r["con_multa"],
+            "no_factibles": r["no_factibles"],
+            "no_ubicados": r["no_ubicados"],
+            "tasa_calidad": float(r["tasa_calidad"]) if r["tasa_calidad"] else 0,
+            "tasa_multa": float(r["tasa_multa"]) if r["tasa_multa"] else 0,
+            "calidad": "buena" if (r["tasa_calidad"] or 0) >= 85 else "regular" if (r["tasa_calidad"] or 0) >= 70 else "mala",
+        })
+
+    # Zonas problemáticas
+    zonas = []
+    for r in (zonas_problematicas or []):
+        zonas.append({
+            "zona": r["zona"],
+            "total": r["total"],
+            "bien_ejecutados": r["bien_ejecutados"],
+            "con_multa": r["con_multa"],
+            "zonas_peligrosas": r["zonas_peligrosas"],
+            "no_ubicados": r["no_ubicados"],
+            "tasa_calidad": float(r["tasa_calidad"]) if r["tasa_calidad"] else 0,
+        })
+
+    # Giros problemáticos
+    giros = []
+    for r in (giros_problematicos or []):
+        giros.append({
+            "giro": r["giro"],
+            "total": r["total"],
+            "no_ubicados": r["no_ubicados"],
+            "no_ejecutados": r["no_ejecutados"],
+            "no_factibles": r["no_factibles"],
+            "pct_no_ubicados": float(r["pct_no_ubicados"]) if r["pct_no_ubicados"] else 0,
+        })
+
+    # Situaciones discrepantes
+    situaciones = []
+    for r in (situaciones_frecuentes or []):
+        situaciones.append({
+            "esperada": r["esperada"],
+            "encontrada": r["encontrada"],
+            "cantidad": r["cantidad"],
+            "discrepancias": r["discrepancias"],
+        })
+
+    # Generar alertas operacionales
+    alertas = []
+    if causas["total"] > 0:
+        pct_no_ubicado = round(causas["no_ubicado"] / causas["total"] * 100, 1)
+        if pct_no_ubicado > 15:
+            alertas.append({
+                "tipo": "warning",
+                "titulo": f"{pct_no_ubicado}% de casos no ubicados",
+                "mensaje": f"{causas['no_ubicado']} casos no pudieron ser ubicados. Revisar direcciones.",
+            })
+
+        pct_zona_peligrosa = round(causas["zona_peligrosa"] / causas["total"] * 100, 1)
+        if pct_zona_peligrosa > 10:
+            alertas.append({
+                "tipo": "info",
+                "titulo": f"{pct_zona_peligrosa}% en zonas peligrosas",
+                "mensaje": f"{causas['zona_peligrosa']} casos en zonas de riesgo.",
+            })
+
+    if factibilidad["factible_no_ejecutado"] > 10:
+        alertas.append({
+            "tipo": "danger",
+            "titulo": f"{factibilidad['factible_no_ejecutado']} casos factibles no ejecutados",
+            "mensaje": "Casos donde era factible cortar pero no se ejecutó. Revisar motivos.",
+        })
+
+    # Identificar inspectores con problemas
+    inspectores_problemas = [i for i in inspectores if i["calidad"] == "mala" and i["total"] >= 10]
+    if inspectores_problemas:
+        nombres = ", ".join([i["inspector"] for i in inspectores_problemas[:3]])
+        alertas.append({
+            "tipo": "warning",
+            "titulo": "Inspectores con baja calidad",
+            "mensaje": f"Tasa < 70%: {nombres}. Revisar capacitación.",
+        })
+
+    # Zonas con alta tasa de multas
+    zonas_multas = [z for z in zonas if z["con_multa"] > z["total"] * 0.1 and z["total"] >= 20]
+    if zonas_multas:
+        nombres_zonas = ", ".join([z["zona"] for z in zonas_multas[:3]])
+        alertas.append({
+            "tipo": "warning",
+            "titulo": "Zonas con alta tasa de multas",
+            "mensaje": f"Zonas con > 10% de multas: {nombres_zonas}.",
+        })
+
+    # Giros con alto % de no ubicados
+    giros_no_ubicados = [g for g in giros if g["pct_no_ubicados"] > 30 and g["total"] >= 10]
+    if giros_no_ubicados:
+        nombres_giros = ", ".join([g["giro"] for g in giros_no_ubicados[:3]])
+        alertas.append({
+            "tipo": "info",
+            "titulo": "Giros difíciles de ubicar",
+            "mensaje": f"Giros con > 30% no ubicados: {nombres_giros}.",
+        })
+
+    return {
+        "causas_no_ejecucion": causas,
+        "analisis_multas": multas,
+        "factibilidad_detalle": factibilidad,
+        "ranking_inspectores": inspectores,
+        "zonas_problematicas": zonas,
+        "giros_problematicos": giros,
+        "situaciones_discrepantes": situaciones,
+        "alertas": alertas,
+    }

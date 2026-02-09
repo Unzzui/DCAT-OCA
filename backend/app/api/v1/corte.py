@@ -92,6 +92,25 @@ async def get_evolucion(
     return await corte_service.get_corte_evolucion(zona=zona, centro_operativo=centro_operativo)
 
 
+@router.get("/analisis-operacional")
+async def get_analisis_operacional(
+    zona: Optional[str] = Query(None, description="Filtrar por zona"),
+    centro_operativo: Optional[str] = Query(None, description="Filtrar por centro operativo"),
+    comuna: Optional[str] = Query(None, description="Filtrar por comuna"),
+    mes: Optional[int] = Query(None, description="Filtrar por mes (1-12)"),
+    anio: Optional[int] = Query(None, description="Filtrar por año"),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Get operational analysis: causes of non-execution, penalties, feasibility."""
+    return await corte_service.get_corte_analisis_operacional(
+        zona=zona,
+        centro_operativo=centro_operativo,
+        comuna=comuna,
+        mes=mes,
+        anio=anio,
+    )
+
+
 @router.get("/export")
 async def export_data(
     format: str = Query("csv"), search: Optional[str] = None,

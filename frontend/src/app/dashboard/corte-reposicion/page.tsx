@@ -43,6 +43,8 @@ import {
   ShieldAlert,
   ShieldCheck,
   Calendar,
+  Activity,
+  AlertOctagon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { ExportOverlay } from '@/components/ui/ExportOverlay'
@@ -119,6 +121,66 @@ interface EvolucionItem {
   tasa_multa: number
 }
 
+interface AnalisisOperacional {
+  alertas: Array<{ tipo: string; titulo: string; mensaje: string }>
+  causas_no_ejecucion: {
+    no_ubicado: number
+    zona_peligrosa: number
+    cliente_pago: number
+    medidor_retirado: number
+    ya_cortado: number
+    con_convenio: number
+    con_reclamo: number
+    no_factible: number
+    no_ejecutado: number
+    total: number
+  }
+  analisis_multas: Array<{ motivo: string; cantidad: number; con_multa: number; pct_multa: number }>
+  factibilidad_detalle: {
+    factible: number
+    no_factible: number
+    no_factible_zona_peligrosa: number
+    no_factible_no_ubicado: number
+    factible_no_ejecutado: number
+    total: number
+  }
+  ranking_inspectores: Array<{
+    inspector: string
+    total: number
+    bien_ejecutados: number
+    no_ejecutados: number
+    con_multa: number
+    no_factibles: number
+    no_ubicados: number
+    tasa_calidad: number
+    tasa_multa: number
+    calidad: string
+  }>
+  zonas_problematicas: Array<{
+    zona: string
+    total: number
+    bien_ejecutados: number
+    con_multa: number
+    zonas_peligrosas: number
+    no_ubicados: number
+    tasa_calidad: number
+  }>
+  giros_problematicos: Array<{
+    giro: string
+    total: number
+    no_ubicados: number
+    no_ejecutados: number
+    no_factibles: number
+    pct_no_ubicados: number
+  }>
+  situaciones_discrepantes: Array<{
+    esperada: string
+    encontrada: string
+    cantidad: number
+    discrepancias: number
+  }>
+}
+
 const MESES_NOMBRES = [
   '', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
@@ -146,6 +208,7 @@ export default function CorteReposicionPage() {
   const [situaciones, setSituaciones] = useState<string[]>([])
   const [periodos, setPeriodos] = useState<Periodos>({ meses: [], anios: [], ultimo_mes: null, ultimo_anio: null })
   const [evolucion, setEvolucion] = useState<EvolucionItem[]>([])
+  const [analisisOp, setAnalisisOp] = useState<AnalisisOperacional | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -220,6 +283,22 @@ export default function CorteReposicionPage() {
     }
   }, [globalZona, globalCentro])
 
+  const fetchAnalisisOperacional = useCallback(async () => {
+    try {
+      const params = new URLSearchParams()
+      if (globalZona) params.append('zona', globalZona)
+      if (globalCentro) params.append('centro_operativo', globalCentro)
+      if (globalMes) params.append('mes', globalMes)
+      if (globalAnio) params.append('anio', globalAnio)
+
+      const url = `/api/v1/corte/analisis-operacional${params.toString() ? '?' + params.toString() : ''}`
+      const response = await api.get<AnalisisOperacional>(url)
+      setAnalisisOp(response)
+    } catch (error) {
+      console.error('Error fetching analisis operacional:', error)
+    }
+  }, [globalZona, globalCentro, globalMes, globalAnio])
+
   const renderCount = useRef(0)
 
   useEffect(() => {
@@ -251,14 +330,16 @@ export default function CorteReposicionPage() {
       if (initMes) dataParams.append('mes', initMes)
       if (initAnio) dataParams.append('anio', initAnio)
 
-      const [statsRes, dataRes, evolucionRes] = await Promise.all([
+      const [statsRes, dataRes, evolucionRes, analisisRes] = await Promise.all([
         api.get<Stats>(`/api/v1/corte/stats${statsParams.toString() ? '?' + statsParams.toString() : ''}`),
         api.get<PaginatedResponse>(`/api/v1/corte?${dataParams.toString()}`),
         api.get<EvolucionItem[]>('/api/v1/corte/evolucion'),
+        api.get<AnalisisOperacional>(`/api/v1/corte/analisis-operacional${statsParams.toString() ? '?' + statsParams.toString() : ''}`),
       ])
       setStats(statsRes)
       setData(dataRes)
       setEvolucion(evolucionRes)
+      setAnalisisOp(analisisRes)
       setGlobalMes(initMes)
       setGlobalAnio(initAnio)
       setLoading(false)
@@ -274,11 +355,11 @@ export default function CorteReposicionPage() {
     }
     const doRefresh = async () => {
       setRefreshing(true)
-      await Promise.all([fetchStats(), fetchData(), fetchEvolucion()])
+      await Promise.all([fetchStats(), fetchData(), fetchEvolucion(), fetchAnalisisOperacional()])
       setRefreshing(false)
     }
     doRefresh()
-  }, [fetchStats, fetchData, fetchEvolucion])
+  }, [fetchStats, fetchData, fetchEvolucion, fetchAnalisisOperacional])
 
   const getMotivoMultaBadge = (motivo: string) => {
     if (!motivo) return <span className="text-gray-400">-</span>
@@ -527,6 +608,7 @@ export default function CorteReposicionPage() {
             <Tab icon={Scissors}>Resumen Ejecutivo</Tab>
             <Tab icon={MapPin}>Distribucion</Tab>
             <Tab icon={TrendingUp}>Tendencias</Tab>
+            <Tab icon={Activity}>Análisis Operacional</Tab>
             <Tab icon={Search}>Datos</Tab>
           </TabList>
           <TabPanels>
@@ -856,6 +938,330 @@ export default function CorteReposicionPage() {
                   ))}
                 </div>
               </Card>
+            </TabPanel>
+
+            {/* Analisis Operacional Panel */}
+            <TabPanel>
+              {/* Alertas */}
+              {analisisOp?.alertas && analisisOp.alertas.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                  {analisisOp.alertas.map((alerta, idx) => (
+                    <Card
+                      key={idx}
+                      decoration="left"
+                      decorationColor={
+                        alerta.tipo === 'danger' ? 'rose' :
+                        alerta.tipo === 'warning' ? 'amber' : 'blue'
+                      }
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`p-2 rounded-lg ${
+                          alerta.tipo === 'danger' ? 'bg-rose-100' :
+                          alerta.tipo === 'warning' ? 'bg-amber-100' : 'bg-blue-100'
+                        }`}>
+                          <AlertOctagon size={20} className={
+                            alerta.tipo === 'danger' ? 'text-rose-600' :
+                            alerta.tipo === 'warning' ? 'text-amber-600' : 'text-blue-600'
+                          } />
+                        </div>
+                        <div>
+                          <Text className="font-semibold text-gray-800">{alerta.titulo}</Text>
+                          <Text className="text-sm text-gray-500 mt-1">{alerta.mensaje}</Text>
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                {/* Causas de No Ejecución */}
+                <Card>
+                  <Title className="flex items-center gap-2">
+                    <XCircle size={20} className="text-rose-500" />
+                    Causas de No Ejecución
+                  </Title>
+                  <Text className="text-gray-500">Motivos por los que no se ejecutaron los cortes</Text>
+                  <div className="mt-4 space-y-3">
+                    {analisisOp?.causas_no_ejecucion && analisisOp.causas_no_ejecucion.total > 0 ? (
+                      <>
+                        {analisisOp.causas_no_ejecucion.no_ubicado > 0 && (
+                          <div className="p-3 bg-gray-50 rounded-lg">
+                            <Flex justifyContent="between" className="mb-2">
+                              <span className="text-sm font-medium">No Ubicado</span>
+                              <Badge color="rose">{formatNumber(analisisOp.causas_no_ejecucion.no_ubicado)}</Badge>
+                            </Flex>
+                            <ProgressBar value={Math.round(analisisOp.causas_no_ejecucion.no_ubicado / analisisOp.causas_no_ejecucion.total * 100)} color="rose" />
+                            <Text className="text-xs text-gray-500 mt-1">{Math.round(analisisOp.causas_no_ejecucion.no_ubicado / analisisOp.causas_no_ejecucion.total * 100)}% del total</Text>
+                          </div>
+                        )}
+                        {analisisOp.causas_no_ejecucion.zona_peligrosa > 0 && (
+                          <div className="p-3 bg-gray-50 rounded-lg">
+                            <Flex justifyContent="between" className="mb-2">
+                              <span className="text-sm font-medium">Zona Peligrosa</span>
+                              <Badge color="orange">{formatNumber(analisisOp.causas_no_ejecucion.zona_peligrosa)}</Badge>
+                            </Flex>
+                            <ProgressBar value={Math.round(analisisOp.causas_no_ejecucion.zona_peligrosa / analisisOp.causas_no_ejecucion.total * 100)} color="orange" />
+                            <Text className="text-xs text-gray-500 mt-1">{Math.round(analisisOp.causas_no_ejecucion.zona_peligrosa / analisisOp.causas_no_ejecucion.total * 100)}% del total</Text>
+                          </div>
+                        )}
+                        {analisisOp.causas_no_ejecucion.cliente_pago > 0 && (
+                          <div className="p-3 bg-gray-50 rounded-lg">
+                            <Flex justifyContent="between" className="mb-2">
+                              <span className="text-sm font-medium">Cliente Pagó</span>
+                              <Badge color="emerald">{formatNumber(analisisOp.causas_no_ejecucion.cliente_pago)}</Badge>
+                            </Flex>
+                            <ProgressBar value={Math.round(analisisOp.causas_no_ejecucion.cliente_pago / analisisOp.causas_no_ejecucion.total * 100)} color="emerald" />
+                            <Text className="text-xs text-gray-500 mt-1">{Math.round(analisisOp.causas_no_ejecucion.cliente_pago / analisisOp.causas_no_ejecucion.total * 100)}% del total</Text>
+                          </div>
+                        )}
+                        {analisisOp.causas_no_ejecucion.ya_cortado > 0 && (
+                          <div className="p-3 bg-gray-50 rounded-lg">
+                            <Flex justifyContent="between" className="mb-2">
+                              <span className="text-sm font-medium">Ya Cortado</span>
+                              <Badge color="blue">{formatNumber(analisisOp.causas_no_ejecucion.ya_cortado)}</Badge>
+                            </Flex>
+                            <ProgressBar value={Math.round(analisisOp.causas_no_ejecucion.ya_cortado / analisisOp.causas_no_ejecucion.total * 100)} color="blue" />
+                            <Text className="text-xs text-gray-500 mt-1">{Math.round(analisisOp.causas_no_ejecucion.ya_cortado / analisisOp.causas_no_ejecucion.total * 100)}% del total</Text>
+                          </div>
+                        )}
+                        {analisisOp.causas_no_ejecucion.con_convenio > 0 && (
+                          <div className="p-3 bg-gray-50 rounded-lg">
+                            <Flex justifyContent="between" className="mb-2">
+                              <span className="text-sm font-medium">Con Convenio</span>
+                              <Badge color="violet">{formatNumber(analisisOp.causas_no_ejecucion.con_convenio)}</Badge>
+                            </Flex>
+                            <ProgressBar value={Math.round(analisisOp.causas_no_ejecucion.con_convenio / analisisOp.causas_no_ejecucion.total * 100)} color="violet" />
+                            <Text className="text-xs text-gray-500 mt-1">{Math.round(analisisOp.causas_no_ejecucion.con_convenio / analisisOp.causas_no_ejecucion.total * 100)}% del total</Text>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <Text className="text-gray-400 text-center py-4">Sin datos disponibles</Text>
+                    )}
+                  </div>
+                </Card>
+
+                {/* Detalle de Multas */}
+                <Card>
+                  <Title className="flex items-center gap-2">
+                    <ShieldAlert size={20} className="text-amber-500" />
+                    Análisis de Multas
+                  </Title>
+                  <Text className="text-gray-500">Distribución de motivos de multa</Text>
+                  <div className="mt-4 space-y-3">
+                    {analisisOp?.analisis_multas?.map((multa) => (
+                      <div key={multa.motivo} className="p-3 bg-gray-50 rounded-lg">
+                        <Flex justifyContent="between" className="mb-2">
+                          <span className="text-sm font-medium truncate max-w-[200px]">{multa.motivo}</span>
+                          <Badge color="amber">{formatNumber(multa.cantidad)}</Badge>
+                        </Flex>
+                        <ProgressBar value={multa.pct_multa} color="amber" />
+                        <Text className="text-xs text-gray-500 mt-1">{multa.con_multa} con multa ({multa.pct_multa}%)</Text>
+                      </div>
+                    ))}
+                    {(!analisisOp?.analisis_multas || analisisOp.analisis_multas.length === 0) && (
+                      <Text className="text-gray-400 text-center py-4">Sin datos disponibles</Text>
+                    )}
+                  </div>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                {/* Factibilidad de Corte - Detalle */}
+                <Card>
+                  <Title className="flex items-center gap-2">
+                    <Scissors size={20} className="text-blue-500" />
+                    Factibilidad de Corte - Detalle
+                  </Title>
+                  <Text className="text-gray-500">Análisis de factibilidad de ejecución</Text>
+                  <div className="mt-4 space-y-3">
+                    {analisisOp?.factibilidad_detalle && analisisOp.factibilidad_detalle.total > 0 ? (
+                      <>
+                        <div className="grid grid-cols-2 gap-4 mb-4">
+                          <div className="p-3 bg-emerald-50 rounded-lg text-center">
+                            <p className="text-2xl font-bold text-emerald-600">{formatNumber(analisisOp.factibilidad_detalle.factible)}</p>
+                            <p className="text-xs text-gray-600">Factibles</p>
+                          </div>
+                          <div className="p-3 bg-rose-50 rounded-lg text-center">
+                            <p className="text-2xl font-bold text-rose-600">{formatNumber(analisisOp.factibilidad_detalle.no_factible)}</p>
+                            <p className="text-xs text-gray-600">No Factibles</p>
+                          </div>
+                        </div>
+                        {analisisOp.factibilidad_detalle.no_factible_zona_peligrosa > 0 && (
+                          <div className="p-3 bg-gray-50 rounded-lg">
+                            <Flex justifyContent="between">
+                              <span className="text-sm">No factible por zona peligrosa</span>
+                              <Badge color="orange">{formatNumber(analisisOp.factibilidad_detalle.no_factible_zona_peligrosa)}</Badge>
+                            </Flex>
+                          </div>
+                        )}
+                        {analisisOp.factibilidad_detalle.no_factible_no_ubicado > 0 && (
+                          <div className="p-3 bg-gray-50 rounded-lg">
+                            <Flex justifyContent="between">
+                              <span className="text-sm">No factible por no ubicado</span>
+                              <Badge color="gray">{formatNumber(analisisOp.factibilidad_detalle.no_factible_no_ubicado)}</Badge>
+                            </Flex>
+                          </div>
+                        )}
+                        {analisisOp.factibilidad_detalle.factible_no_ejecutado > 0 && (
+                          <div className="p-3 bg-rose-50 rounded-lg border-l-4 border-rose-500">
+                            <Flex justifyContent="between">
+                              <span className="text-sm font-medium text-rose-700">Factible pero NO ejecutado</span>
+                              <Badge color="rose">{formatNumber(analisisOp.factibilidad_detalle.factible_no_ejecutado)}</Badge>
+                            </Flex>
+                            <Text className="text-xs text-rose-600 mt-1">Requiere atención inmediata</Text>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <Text className="text-gray-400 text-center py-4">Sin datos disponibles</Text>
+                    )}
+                  </div>
+                </Card>
+
+                {/* Zonas Problemáticas */}
+                <Card>
+                  <Title className="flex items-center gap-2">
+                    <MapPin size={20} className="text-rose-500" />
+                    Zonas - Calidad de Ejecución
+                  </Title>
+                  <Text className="text-gray-500">Zonas ordenadas por tasa de calidad (menor a mayor)</Text>
+                  <div className="mt-4 space-y-3">
+                    {analisisOp?.zonas_problematicas?.map((zona) => (
+                      <div key={zona.zona} className="p-3 bg-gray-50 rounded-lg">
+                        <Flex justifyContent="between" className="mb-2">
+                          <span className="text-sm font-semibold">{zona.zona}</span>
+                          <Badge color={zona.tasa_calidad >= 85 ? 'emerald' : zona.tasa_calidad >= 70 ? 'amber' : 'rose'}>
+                            {zona.tasa_calidad}% calidad
+                          </Badge>
+                        </Flex>
+                        <ProgressBar value={zona.tasa_calidad} color={zona.tasa_calidad >= 85 ? 'emerald' : zona.tasa_calidad >= 70 ? 'amber' : 'rose'} />
+                        <Flex justifyContent="between" className="mt-2 text-xs text-gray-500">
+                          <span>{formatNumber(zona.total)} inspecciones</span>
+                          <span>{formatNumber(zona.no_ubicados)} no ubicados</span>
+                        </Flex>
+                      </div>
+                    ))}
+                    {(!analisisOp?.zonas_problematicas || analisisOp.zonas_problematicas.length === 0) && (
+                      <Text className="text-gray-400 text-center py-4">Sin datos disponibles</Text>
+                    )}
+                  </div>
+                </Card>
+              </div>
+
+              {/* Ranking de Inspectores */}
+              <Card className="mb-6">
+                <Title className="flex items-center gap-2">
+                  <Users size={20} className="text-blue-500" />
+                  Ranking de Inspectores - Análisis Detallado
+                </Title>
+                <Text className="text-gray-500">Desempeño detallado de inspectores con métricas de calidad</Text>
+                <Table className="mt-4">
+                  <TableHead>
+                    <TableRow>
+                      <TableHeaderCell>Inspector</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Total</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Bien Ejec.</TableHeaderCell>
+                      <TableHeaderCell className="text-right">No Ejec.</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Tasa Calidad</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Con Multa</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Tasa Multa</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {analisisOp?.ranking_inspectores?.map((inspector) => (
+                      <TableRow key={inspector.inspector}>
+                        <TableCell className="font-medium truncate max-w-[150px]">{inspector.inspector}</TableCell>
+                        <TableCell className="text-right">{formatNumber(inspector.total)}</TableCell>
+                        <TableCell className="text-right text-emerald-600">{formatNumber(inspector.bien_ejecutados)}</TableCell>
+                        <TableCell className="text-right text-rose-600">{formatNumber(inspector.no_ejecutados)}</TableCell>
+                        <TableCell className="text-right">
+                          <Badge color={inspector.tasa_calidad >= 90 ? 'emerald' : inspector.tasa_calidad >= 70 ? 'amber' : 'rose'}>
+                            {inspector.tasa_calidad}%
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right text-amber-600">{formatNumber(inspector.con_multa)}</TableCell>
+                        <TableCell className="text-right">
+                          <Badge color={inspector.tasa_multa <= 10 ? 'emerald' : inspector.tasa_multa <= 25 ? 'amber' : 'rose'}>
+                            {inspector.tasa_multa}%
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {(!analisisOp?.ranking_inspectores || analisisOp.ranking_inspectores.length === 0) && (
+                  <Text className="text-gray-400 text-center py-4">Sin datos disponibles</Text>
+                )}
+              </Card>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Giros Problemáticos */}
+                <Card>
+                  <Title className="flex items-center gap-2">
+                    <Building2 size={20} className="text-violet-500" />
+                    Giros - Dificultad de Ubicación
+                  </Title>
+                  <Text className="text-gray-500">Tipos de propiedad con mayor % de no ubicados</Text>
+                  <div className="mt-4 space-y-3">
+                    {analisisOp?.giros_problematicos?.map((giro) => (
+                      <div key={giro.giro} className="p-3 bg-gray-50 rounded-lg">
+                        <Flex justifyContent="between" className="mb-2">
+                          <span className="text-sm font-medium">{giro.giro}</span>
+                          <Badge color={giro.pct_no_ubicados > 30 ? 'rose' : giro.pct_no_ubicados > 15 ? 'amber' : 'emerald'}>
+                            {giro.pct_no_ubicados}% no ubic.
+                          </Badge>
+                        </Flex>
+                        <ProgressBar value={giro.pct_no_ubicados} color="violet" />
+                        <Flex justifyContent="between" className="mt-2 text-xs text-gray-500">
+                          <span>{formatNumber(giro.total)} inspecciones</span>
+                          <span>{formatNumber(giro.no_ejecutados)} no ejecutados</span>
+                        </Flex>
+                      </div>
+                    ))}
+                    {(!analisisOp?.giros_problematicos || analisisOp.giros_problematicos.length === 0) && (
+                      <Text className="text-gray-400 text-center py-4">Sin datos disponibles</Text>
+                    )}
+                  </div>
+                </Card>
+
+                {/* Discrepancias */}
+                <Card>
+                  <Title className="flex items-center gap-2">
+                    <AlertTriangle size={20} className="text-amber-500" />
+                    Situaciones Frecuentes
+                  </Title>
+                  <Text className="text-gray-500">Relación entre situación esperada y encontrada</Text>
+                  <div className="mt-4 space-y-2 max-h-80 overflow-y-auto">
+                    {analisisOp?.situaciones_discrepantes?.slice(0, 10).map((disc, idx) => (
+                      <div key={idx} className="p-3 bg-gray-50 rounded-lg border-l-4 border-amber-400">
+                        <div className="flex justify-between items-start mb-2">
+                          <Badge color={disc.discrepancias > 0 ? 'amber' : 'emerald'} size="xs">
+                            {disc.cantidad} casos
+                          </Badge>
+                          {disc.discrepancias > 0 && (
+                            <Badge color="rose" size="xs">{disc.discrepancias} discrepancias</Badge>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <span className="text-gray-500">Esperado:</span>
+                            <p className="text-gray-700 truncate">{disc.esperada}</p>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">Encontrado:</span>
+                            <p className="text-gray-700 truncate">{disc.encontrada}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {(!analisisOp?.situaciones_discrepantes || analisisOp.situaciones_discrepantes.length === 0) && (
+                      <Text className="text-gray-400 text-center py-4">Sin datos disponibles</Text>
+                    )}
+                  </div>
+                </Card>
+              </div>
             </TabPanel>
 
             {/* Datos Panel */}

@@ -120,6 +120,25 @@ async def get_evolucion(
     )
 
 
+@router.get("/analisis-operacional")
+async def get_analisis_operacional(
+    tipo_sistema: Optional[str] = Query(None, description="Filtrar por tipo sistema"),
+    contratista: Optional[str] = Query(None, description="Filtrar por contratista"),
+    comuna: Optional[str] = Query(None, description="Filtrar por comuna"),
+    mes: Optional[int] = Query(None, description="Filtrar por mes (1-12)"),
+    anio: Optional[int] = Query(None, description="Filtrar por año"),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Get operational analysis: anomalies, fraud patterns, contractor quality."""
+    return await calidad_service.get_calidad_analisis_operacional(
+        tipo_sistema=tipo_sistema,
+        contratista=contratista,
+        comuna=comuna,
+        mes=mes,
+        anio=anio,
+    )
+
+
 @router.get("/export")
 async def export_data(
     format: str = Query("csv", description="Formato de exportacion (csv, excel)"),

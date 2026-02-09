@@ -105,6 +105,27 @@ async def get_periodos(
     return await teleco_service.get_teleco_periodos()
 
 
+@router.get("/analisis-operacional")
+async def get_analisis_operacional(
+    empresa: Optional[str] = Query(None, description="Filtrar por empresa"),
+    comuna: Optional[str] = Query(None, description="Filtrar por comuna"),
+    fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    mes: Optional[int] = Query(None, description="Filtrar por mes (1-12)"),
+    anio: Optional[int] = Query(None, description="Filtrar por año"),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Get operational analysis: rejections, reinspections, documentation quality."""
+    return await teleco_service.get_teleco_analisis_operacional(
+        empresa=empresa,
+        comuna=comuna,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        mes=mes,
+        anio=anio,
+    )
+
+
 @router.get("/export")
 async def export_data(
     format: str = Query("csv", description="Formato de exportacion (csv, excel)"),

@@ -8,6 +8,7 @@ from .dashboard import router as dashboard_router
 from .calidad import router as calidad_router
 from .corte import router as corte_router
 from .admin import router as admin_router
+from .settings import router as settings_router
 
 api_router = APIRouter()
 
@@ -20,3 +21,4 @@ api_router.include_router(dashboard_router)
 api_router.include_router(calidad_router)
 api_router.include_router(corte_router)
 api_router.include_router(admin_router)
+api_router.include_router(settings_router)

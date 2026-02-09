@@ -509,3 +509,354 @@ async def get_calidad_evolucion(
             "tasa_anomalias": round(anomalias / t * 100, 1) if t > 0 else 0,
         })
     return evolucion
+
+
+@cached(ttl_seconds=60)
+async def get_calidad_analisis_operacional(
+    tipo_sistema: Optional[str] = None,
+    contratista: Optional[str] = None,
+    comuna: Optional[str] = None,
+    mes: Optional[int] = None,
+    anio: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Análisis operacional detallado: anomalías, patrones de fraude, calidad de inspección."""
+    where, params = _build_where(comuna=comuna, contratista=contratista, mes=mes, anio=anio)
+
+    tipo_filter = ""
+    if tipo_sistema:
+        if tipo_sistema.upper() == "MONOFASICO":
+            tipo_filter = "AND tipo_sistema = 'MONOFASICO'"
+        elif tipo_sistema.upper() == "TRIFASICO":
+            tipo_filter = "AND tipo_sistema = 'TRIFASICO'"
+
+    (
+        severidad_anomalias,
+        patrones_fraude,
+        ranking_contratistas,
+        ranking_inspectores,
+        seguimiento_normalizacion,
+        clientes_riesgo,
+        calidad_instalacion_detalle,
+    ) = await asyncio.gather(
+        # 1) Clasificación de anomalías por severidad
+        execute_query(f"""
+            WITH combined AS (
+                SELECT tipo_resultado, modelo_corresponde, medidor_corresponde,
+                       requiere_normalizacion, perno_normalizado, error_porcentaje,
+                       estado_acometida, estado_caja, estado_tapa,
+                       comuna, inspector, contratista, mes, anio, tipo_sistema
+                FROM calidad_mono_base
+                UNION ALL
+                SELECT tipo_resultado, NULL::text as modelo_corresponde, NULL::text as medidor_corresponde,
+                       requiere_normalizacion::text, perno_normalizado, error_porcentaje,
+                       estado_acometida, estado_caja, estado_tapa,
+                       comuna, inspector, contratista, mes, anio, tipo_sistema
+                FROM calidad_tri_base
+            )
+            SELECT
+                COUNT(*) FILTER (WHERE
+                    ABS(COALESCE(error_porcentaje, 0)) > 5 OR
+                    UPPER(perno_normalizado) LIKE '%%NO%%'
+                ) as critica,
+                COUNT(*) FILTER (WHERE
+                    UPPER(modelo_corresponde) LIKE '%%NO%%' OR
+                    UPPER(medidor_corresponde) LIKE '%%NO%%' OR
+                    (UPPER(COALESCE(estado_acometida,'')) NOT LIKE '%%NORMAL%%' AND TRIM(COALESCE(estado_acometida,'')) != '')
+                ) as grave,
+                COUNT(*) FILTER (WHERE
+                    requiere_normalizacion IS NOT NULL AND TRIM(COALESCE(requiere_normalizacion,'')) != '' OR
+                    (UPPER(COALESCE(estado_caja,'')) NOT LIKE '%%NORMAL%%' AND TRIM(COALESCE(estado_caja,'')) != '') OR
+                    (UPPER(COALESCE(estado_tapa,'')) NOT LIKE '%%NORMAL%%' AND TRIM(COALESCE(estado_tapa,'')) != '')
+                ) as leve,
+                COUNT(*) as total
+            FROM combined WHERE {where} {tipo_filter}
+        """, params),
+        # 2) Patrones sospechosos de fraude (alto error% + perno no normalizado)
+        execute_query(f"""
+            WITH combined AS (
+                SELECT cliente, nombre_cliente, direccion, comuna, medidor,
+                       error_porcentaje, perno_normalizado, tipo_resultado,
+                       inspector, contratista, mes, anio, tipo_sistema
+                FROM calidad_mono_base
+                UNION ALL
+                SELECT cliente, nombre_cliente, direccion, comuna, medidor,
+                       error_porcentaje, perno_normalizado, tipo_resultado,
+                       inspector, contratista, mes, anio, tipo_sistema
+                FROM calidad_tri_base
+            )
+            SELECT
+                COUNT(*) FILTER (WHERE
+                    ABS(COALESCE(error_porcentaje, 0)) > 3 AND
+                    UPPER(perno_normalizado) LIKE '%%NO%%'
+                ) as alto_riesgo,
+                COUNT(*) FILTER (WHERE
+                    ABS(COALESCE(error_porcentaje, 0)) > 2 AND
+                    UPPER(tipo_resultado) NOT LIKE '%%NORMAL%%'
+                ) as medio_riesgo,
+                COUNT(*) FILTER (WHERE
+                    UPPER(perno_normalizado) LIKE '%%NO%%' AND
+                    UPPER(tipo_resultado) NOT LIKE '%%NORMAL%%'
+                ) as perno_anormal,
+                COUNT(*) as total
+            FROM combined WHERE {where} {tipo_filter}
+        """, params),
+        # 3) Ranking de contratistas por calidad
+        execute_query(f"""
+            WITH combined AS (
+                SELECT contratista, tipo_resultado, error_porcentaje,
+                       perno_normalizado, estado_acometida,
+                       comuna, inspector, mes, anio, tipo_sistema
+                FROM calidad_mono_base
+                UNION ALL
+                SELECT contratista, tipo_resultado, error_porcentaje,
+                       perno_normalizado, estado_acometida,
+                       comuna, inspector, mes, anio, tipo_sistema
+                FROM calidad_tri_base
+            )
+            SELECT contratista,
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE UPPER(tipo_resultado) LIKE '%%NORMAL%%') as normales,
+                ROUND(AVG(ABS(COALESCE(error_porcentaje, 0)))::numeric, 2) as error_promedio,
+                COUNT(*) FILTER (WHERE UPPER(perno_normalizado) LIKE '%%NO%%') as pernos_no_norm,
+                COUNT(*) FILTER (WHERE UPPER(COALESCE(estado_acometida,'')) NOT LIKE '%%NORMAL%%' AND TRIM(COALESCE(estado_acometida,'')) != '') as acometidas_anormales,
+                ROUND(COUNT(*) FILTER (WHERE UPPER(tipo_resultado) LIKE '%%NORMAL%%') * 100.0 / NULLIF(COUNT(*), 0), 1) as tasa_normalidad
+            FROM combined WHERE {where} {tipo_filter} AND TRIM(COALESCE(contratista,'')) != ''
+            GROUP BY contratista
+            ORDER BY total DESC
+        """, params),
+        # 4) Ranking de inspectores
+        execute_query(f"""
+            WITH combined AS (
+                SELECT inspector, tipo_resultado, error_porcentaje, cliente,
+                       comuna, contratista, mes, anio, tipo_sistema
+                FROM calidad_mono_base
+                UNION ALL
+                SELECT inspector, tipo_resultado, error_porcentaje, cliente,
+                       comuna, contratista, mes, anio, tipo_sistema
+                FROM calidad_tri_base
+            )
+            SELECT inspector,
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE UPPER(tipo_resultado) LIKE '%%NORMAL%%') as normales,
+                COUNT(DISTINCT cliente) as clientes_unicos,
+                ROUND(AVG(ABS(COALESCE(error_porcentaje, 0)))::numeric, 2) as error_promedio_detectado,
+                ROUND(COUNT(*) FILTER (WHERE UPPER(tipo_resultado) LIKE '%%NORMAL%%') * 100.0 / NULLIF(COUNT(*), 0), 1) as tasa_normalidad
+            FROM combined WHERE {where} {tipo_filter} AND TRIM(COALESCE(inspector,'')) != ''
+            GROUP BY inspector
+            HAVING COUNT(*) >= 5
+            ORDER BY tasa_normalidad DESC
+        """, params),
+        # 5) Seguimiento de normalizaciones pendientes
+        execute_query(f"""
+            WITH combined AS (
+                SELECT cliente, nombre_cliente, direccion, comuna, medidor,
+                       requiere_normalizacion, perno_normalizado, tipo_resultado,
+                       inspector, contratista, mes, anio, tipo_sistema
+                FROM calidad_mono_base
+                UNION ALL
+                SELECT cliente, nombre_cliente, direccion, comuna, medidor,
+                       requiere_normalizacion::text, perno_normalizado, tipo_resultado,
+                       inspector, contratista, mes, anio, tipo_sistema
+                FROM calidad_tri_base
+            )
+            SELECT
+                COUNT(*) FILTER (WHERE
+                    requiere_normalizacion IS NOT NULL AND TRIM(COALESCE(requiere_normalizacion,'')) != ''
+                ) as pendientes_normalizacion,
+                COUNT(*) FILTER (WHERE UPPER(perno_normalizado) LIKE '%%NO%%') as pernos_sin_normalizar,
+                COUNT(*) FILTER (WHERE
+                    (requiere_normalizacion IS NOT NULL AND TRIM(COALESCE(requiere_normalizacion,'')) != '') AND
+                    UPPER(perno_normalizado) LIKE '%%NO%%'
+                ) as doble_pendiente,
+                COUNT(*) as total
+            FROM combined WHERE {where} {tipo_filter}
+        """, params),
+        # 6) Clientes de alto riesgo (múltiples inspecciones con anomalías)
+        execute_query(f"""
+            WITH combined AS (
+                SELECT cliente, nombre_cliente, direccion, comuna, medidor,
+                       tipo_resultado, error_porcentaje, perno_normalizado,
+                       inspector, contratista, mes, anio, tipo_sistema
+                FROM calidad_mono_base
+                UNION ALL
+                SELECT cliente, nombre_cliente, direccion, comuna, medidor,
+                       tipo_resultado, error_porcentaje, perno_normalizado,
+                       inspector, contratista, mes, anio, tipo_sistema
+                FROM calidad_tri_base
+            ),
+            cliente_stats AS (
+                SELECT cliente, nombre_cliente, direccion, comuna,
+                    COUNT(*) as inspecciones,
+                    COUNT(*) FILTER (WHERE UPPER(tipo_resultado) NOT LIKE '%%NORMAL%%') as anormales,
+                    MAX(ABS(COALESCE(error_porcentaje, 0))) as max_error,
+                    COUNT(*) FILTER (WHERE UPPER(perno_normalizado) LIKE '%%NO%%') as pernos_no_norm
+                FROM combined WHERE {where} {tipo_filter}
+                GROUP BY cliente, nombre_cliente, direccion, comuna
+            )
+            SELECT cliente, nombre_cliente, direccion, comuna,
+                inspecciones, anormales, max_error, pernos_no_norm,
+                ROUND(anormales * 100.0 / NULLIF(inspecciones, 0), 1) as pct_anormales
+            FROM cliente_stats
+            WHERE inspecciones >= 2 AND (anormales >= 2 OR max_error > 3 OR pernos_no_norm >= 2)
+            ORDER BY anormales DESC, max_error DESC
+            LIMIT 20
+        """, params),
+        # 7) Detalle de calidad de instalación por comuna
+        execute_query(f"""
+            WITH combined AS (
+                SELECT comuna, estado_acometida, estado_caja, estado_tapa,
+                       inspector, contratista, mes, anio, tipo_sistema
+                FROM calidad_mono_base
+                UNION ALL
+                SELECT comuna, estado_acometida, estado_caja, estado_tapa,
+                       inspector, contratista, mes, anio, tipo_sistema
+                FROM calidad_tri_base
+            )
+            SELECT comuna,
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE UPPER(COALESCE(estado_acometida,'')) NOT LIKE '%%NORMAL%%' AND TRIM(COALESCE(estado_acometida,'')) != '') as acometida_anormal,
+                COUNT(*) FILTER (WHERE UPPER(COALESCE(estado_caja,'')) NOT LIKE '%%NORMAL%%' AND TRIM(COALESCE(estado_caja,'')) != '') as caja_anormal,
+                COUNT(*) FILTER (WHERE UPPER(COALESCE(estado_tapa,'')) NOT LIKE '%%NORMAL%%' AND TRIM(COALESCE(estado_tapa,'')) != '') as tapa_anormal
+            FROM combined WHERE {where} {tipo_filter} AND TRIM(COALESCE(comuna,'')) != ''
+            GROUP BY comuna
+            HAVING COUNT(*) >= 10
+            ORDER BY total DESC
+            LIMIT 15
+        """, params),
+    )
+
+    # Procesar severidad de anomalías
+    severidad = {"critica": 0, "grave": 0, "leve": 0, "total": 0}
+    if severidad_anomalias and severidad_anomalias[0]["total"] > 0:
+        s = severidad_anomalias[0]
+        severidad = {
+            "critica": s["critica"] or 0,
+            "grave": s["grave"] or 0,
+            "leve": s["leve"] or 0,
+            "total": s["total"],
+        }
+
+    # Procesar patrones de fraude
+    fraude = {"alto_riesgo": 0, "medio_riesgo": 0, "perno_anormal": 0, "total": 0}
+    if patrones_fraude and patrones_fraude[0]["total"] > 0:
+        f = patrones_fraude[0]
+        fraude = {
+            "alto_riesgo": f["alto_riesgo"] or 0,
+            "medio_riesgo": f["medio_riesgo"] or 0,
+            "perno_anormal": f["perno_anormal"] or 0,
+            "total": f["total"],
+        }
+
+    # Ranking de contratistas
+    contratistas = []
+    for r in (ranking_contratistas or []):
+        contratistas.append({
+            "contratista": r["contratista"],
+            "total": r["total"],
+            "normales": r["normales"],
+            "tasa_normalidad": float(r["tasa_normalidad"]) if r["tasa_normalidad"] else 0,
+            "error_promedio": float(r["error_promedio"]) if r["error_promedio"] else 0,
+            "pernos_no_norm": r["pernos_no_norm"],
+            "acometidas_anormales": r["acometidas_anormales"],
+            "calidad": "buena" if (r["tasa_normalidad"] or 0) >= 80 else "regular" if (r["tasa_normalidad"] or 0) >= 60 else "mala",
+        })
+
+    # Ranking de inspectores
+    inspectores = []
+    for r in (ranking_inspectores or []):
+        inspectores.append({
+            "inspector": r["inspector"],
+            "total": r["total"],
+            "normales": r["normales"],
+            "clientes_unicos": r["clientes_unicos"],
+            "tasa_normalidad": float(r["tasa_normalidad"]) if r["tasa_normalidad"] else 0,
+            "error_promedio_detectado": float(r["error_promedio_detectado"]) if r["error_promedio_detectado"] else 0,
+        })
+
+    # Seguimiento de normalizaciones
+    normalizacion = {"pendientes": 0, "pernos_sin_normalizar": 0, "doble_pendiente": 0, "total": 0}
+    if seguimiento_normalizacion and seguimiento_normalizacion[0]["total"] > 0:
+        n = seguimiento_normalizacion[0]
+        normalizacion = {
+            "pendientes": n["pendientes_normalizacion"] or 0,
+            "pernos_sin_normalizar": n["pernos_sin_normalizar"] or 0,
+            "doble_pendiente": n["doble_pendiente"] or 0,
+            "total": n["total"],
+        }
+
+    # Clientes de alto riesgo
+    clientes = []
+    for r in (clientes_riesgo or []):
+        clientes.append({
+            "cliente": r["cliente"],
+            "nombre": r["nombre_cliente"],
+            "direccion": r["direccion"],
+            "comuna": r["comuna"],
+            "inspecciones": r["inspecciones"],
+            "anormales": r["anormales"],
+            "max_error": float(r["max_error"]) if r["max_error"] else 0,
+            "pernos_no_norm": r["pernos_no_norm"],
+            "pct_anormales": float(r["pct_anormales"]) if r["pct_anormales"] else 0,
+        })
+
+    # Calidad de instalación por comuna
+    instalacion_comuna = []
+    for r in (calidad_instalacion_detalle or []):
+        total = r["total"]
+        instalacion_comuna.append({
+            "comuna": r["comuna"],
+            "total": total,
+            "acometida_anormal": r["acometida_anormal"],
+            "caja_anormal": r["caja_anormal"],
+            "tapa_anormal": r["tapa_anormal"],
+            "pct_problemas": round((r["acometida_anormal"] + r["caja_anormal"] + r["tapa_anormal"]) / (total * 3) * 100, 1) if total > 0 else 0,
+        })
+
+    # Generar alertas operacionales
+    alertas = []
+    if severidad["critica"] > 0:
+        pct = round(severidad["critica"] / severidad["total"] * 100, 1) if severidad["total"] > 0 else 0
+        alertas.append({
+            "tipo": "danger",
+            "titulo": f"{severidad['critica']} anomalías críticas detectadas",
+            "mensaje": f"{pct}% de inspecciones con error > 5% o pernos sin normalizar.",
+        })
+    if fraude["alto_riesgo"] > 5:
+        alertas.append({
+            "tipo": "danger",
+            "titulo": f"{fraude['alto_riesgo']} casos con patrón sospechoso",
+            "mensaje": "Alto error de medición + perno no normalizado. Posible manipulación.",
+        })
+    if normalizacion["doble_pendiente"] > 10:
+        alertas.append({
+            "tipo": "warning",
+            "titulo": f"{normalizacion['doble_pendiente']} casos con doble pendiente",
+            "mensaje": "Requieren normalización Y tienen perno sin normalizar.",
+        })
+    if clientes:
+        alertas.append({
+            "tipo": "warning",
+            "titulo": f"{len(clientes)} clientes de alto riesgo identificados",
+            "mensaje": "Clientes con múltiples inspecciones anormales o alto error.",
+        })
+
+    # Identificar contratistas con problemas
+    contratistas_problemas = [c for c in contratistas if c["calidad"] == "mala" and c["total"] >= 20]
+    if contratistas_problemas:
+        nombres = ", ".join([c["contratista"] for c in contratistas_problemas[:3]])
+        alertas.append({
+            "tipo": "warning",
+            "titulo": "Contratistas con baja calidad",
+            "mensaje": f"Contratistas con tasa < 60%: {nombres}.",
+        })
+
+    return {
+        "severidad_anomalias": severidad,
+        "patrones_fraude": fraude,
+        "ranking_contratistas": contratistas,
+        "ranking_inspectores": inspectores,
+        "seguimiento_normalizacion": normalizacion,
+        "clientes_alto_riesgo": clientes,
+        "calidad_instalacion_comuna": instalacion_comuna,
+        "alertas": alertas,
+    }

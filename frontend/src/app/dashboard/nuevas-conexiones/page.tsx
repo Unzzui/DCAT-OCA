@@ -127,7 +127,7 @@ interface PaginatedResponse {
   pages: number
 }
 
-const META_EFECTIVIDAD = 95
+const META_EFECTIVIDAD = 90
 
 const MESES = [
   { value: 1, label: 'Enero' },

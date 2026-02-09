@@ -42,6 +42,8 @@ import {
   ShieldAlert,
   Calendar,
   TrendingUp,
+  Activity,
+  AlertOctagon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { ExportOverlay } from '@/components/ui/ExportOverlay'
@@ -130,6 +132,69 @@ interface EvolucionItem {
   tasa_anomalias: number
 }
 
+interface AnalisisOperacional {
+  severidad_anomalias: {
+    critica: number
+    grave: number
+    leve: number
+    total: number
+  }
+  patrones_fraude: {
+    alto_riesgo: number
+    medio_riesgo: number
+    perno_anormal: number
+    total: number
+  }
+  ranking_contratistas: Array<{
+    contratista: string
+    total: number
+    normales: number
+    tasa_normalidad: number
+    error_promedio: number
+    pernos_no_norm: number
+    acometidas_anormales: number
+    calidad: string
+  }>
+  ranking_inspectores: Array<{
+    inspector: string
+    total: number
+    normales: number
+    clientes_unicos: number
+    tasa_normalidad: number
+    error_promedio_detectado: number
+  }>
+  seguimiento_normalizacion: {
+    pendientes: number
+    pernos_sin_normalizar: number
+    doble_pendiente: number
+    total: number
+  }
+  clientes_alto_riesgo: Array<{
+    cliente: string
+    nombre: string
+    direccion: string
+    comuna: string
+    inspecciones: number
+    anormales: number
+    max_error: number
+    pernos_no_norm: number
+    pct_anormales: number
+  }>
+  calidad_instalacion_comuna: Array<{
+    comuna: string
+    total: number
+    acometida_anormal: number
+    caja_anormal: number
+    tapa_anormal: number
+    pct_problemas: number
+  }>
+  alertas: Array<{
+    tipo: string
+    titulo: string
+    mensaje: string
+  }>
+}
+
 const MESES_NOMBRES = [
   '', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
@@ -151,6 +216,7 @@ export default function ControlPerdidasPage() {
   // Data
   const [stats, setStats] = useState<Stats | null>(null)
   const [data, setData] = useState<PaginatedResponse | null>(null)
+  const [analisisOp, setAnalisisOp] = useState<AnalisisOperacional | null>(null)
   const [comunas, setComunas] = useState<string[]>([])
   const [contratistas, setContratistas] = useState<string[]>([])
   const [resultados, setResultados] = useState<string[]>([])
@@ -228,6 +294,22 @@ export default function ControlPerdidasPage() {
     }
   }, [globalTipoSistema, globalContratista])
 
+  const fetchAnalisisOperacional = useCallback(async () => {
+    try {
+      const params = new URLSearchParams()
+      if (globalTipoSistema) params.append('tipo_sistema', globalTipoSistema)
+      if (globalContratista) params.append('contratista', globalContratista)
+      if (globalMes) params.append('mes', globalMes)
+      if (globalAnio) params.append('anio', globalAnio)
+
+      const url = `/api/v1/calidad/analisis-operacional${params.toString() ? '?' + params.toString() : ''}`
+      const response = await api.get<AnalisisOperacional>(url)
+      setAnalisisOp(response)
+    } catch (error) {
+      console.error('Error fetching analisis operacional:', error)
+    }
+  }, [globalTipoSistema, globalContratista, globalMes, globalAnio])
+
   const renderCount = useRef(0)
 
   useEffect(() => {
@@ -257,14 +339,16 @@ export default function ControlPerdidasPage() {
       if (initMes) dataParams.append('mes', initMes)
       if (initAnio) dataParams.append('anio', initAnio)
 
-      const [statsRes, dataRes, evolucionRes] = await Promise.all([
+      const [statsRes, dataRes, evolucionRes, analisisRes] = await Promise.all([
         api.get<Stats>(`/api/v1/calidad/stats${statsParams.toString() ? '?' + statsParams.toString() : ''}`),
         api.get<PaginatedResponse>(`/api/v1/calidad?${dataParams.toString()}`),
         api.get<EvolucionItem[]>('/api/v1/calidad/evolucion'),
+        api.get<AnalisisOperacional>(`/api/v1/calidad/analisis-operacional${statsParams.toString() ? '?' + statsParams.toString() : ''}`),
       ])
       setStats(statsRes)
       setData(dataRes)
       setEvolucion(evolucionRes)
+      setAnalisisOp(analisisRes)
       setGlobalMes(initMes)
       setGlobalAnio(initAnio)
       setLoading(false)
@@ -280,11 +364,11 @@ export default function ControlPerdidasPage() {
     }
     const doRefresh = async () => {
       setRefreshing(true)
-      await Promise.all([fetchStats(), fetchData()])
+      await Promise.all([fetchStats(), fetchData(), fetchAnalisisOperacional()])
       setRefreshing(false)
     }
     doRefresh()
-  }, [fetchStats, fetchData])
+  }, [fetchStats, fetchData, fetchAnalisisOperacional])
 
   const getResultadoBadge = (resultado: string) => {
     if (!resultado) return <span className="text-gray-400">-</span>
@@ -517,6 +601,7 @@ export default function ControlPerdidasPage() {
             <Tab icon={Gauge}>Resumen Ejecutivo</Tab>
             <Tab icon={Zap}>Métricas Eléctricas</Tab>
             <Tab icon={TrendingUp}>Tendencias</Tab>
+            <Tab icon={Activity}>Análisis Operacional</Tab>
             <Tab icon={Search}>Datos</Tab>
           </TabList>
           <TabPanels>
@@ -1001,6 +1086,233 @@ export default function ControlPerdidasPage() {
                     </div>
                   ))}
                 </div>
+              </Card>
+            </TabPanel>
+
+            {/* Análisis Operacional Panel */}
+            <TabPanel>
+              {/* Alertas Operacionales */}
+              {analisisOp?.alertas && analisisOp.alertas.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                  {analisisOp.alertas.map((alerta, idx) => (
+                    <Card
+                      key={idx}
+                      decoration="left"
+                      decorationColor={alerta.tipo === 'danger' ? 'rose' : alerta.tipo === 'warning' ? 'amber' : 'blue'}
+                    >
+                      <Flex alignItems="start" className="gap-3">
+                        <div className={`p-2 rounded-lg ${
+                          alerta.tipo === 'danger' ? 'bg-rose-100' :
+                          alerta.tipo === 'warning' ? 'bg-amber-100' : 'bg-blue-100'
+                        }`}>
+                          <AlertOctagon className={
+                            alerta.tipo === 'danger' ? 'text-rose-600' :
+                            alerta.tipo === 'warning' ? 'text-amber-600' : 'text-blue-600'
+                          } size={20} />
+                        </div>
+                        <div>
+                          <Title className="text-base">{alerta.titulo}</Title>
+                          <Text className="mt-1">{alerta.mensaje}</Text>
+                        </div>
+                      </Flex>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                {/* Severidad de Anomalías */}
+                <Card>
+                  <Title>Severidad de Anomalías</Title>
+                  <Text className="text-gray-500">Clasificación por nivel de gravedad</Text>
+                  <div className="mt-4 space-y-3">
+                    <div className="flex justify-between items-center p-3 bg-red-50 rounded-lg">
+                      <div>
+                        <span className="text-sm font-medium">Crítica</span>
+                        <p className="text-xs text-gray-500">Error {">"} 5% o perno sin normalizar</p>
+                      </div>
+                      <span className="text-lg font-bold text-red-600">{analisisOp?.severidad_anomalias.critica || 0}</span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-orange-50 rounded-lg">
+                      <div>
+                        <span className="text-sm font-medium">Grave</span>
+                        <p className="text-xs text-gray-500">Modelo/medidor no corresponde o acometida anormal</p>
+                      </div>
+                      <span className="text-lg font-bold text-orange-600">{analisisOp?.severidad_anomalias.grave || 0}</span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-amber-50 rounded-lg">
+                      <div>
+                        <span className="text-sm font-medium">Leve</span>
+                        <p className="text-xs text-gray-500">Requiere normalización o caja/tapa anormal</p>
+                      </div>
+                      <span className="text-lg font-bold text-amber-600">{analisisOp?.severidad_anomalias.leve || 0}</span>
+                    </div>
+                  </div>
+                </Card>
+
+                {/* Patrones de Fraude */}
+                <Card>
+                  <Title>Patrones Sospechosos</Title>
+                  <Text className="text-gray-500">Detección de posibles irregularidades</Text>
+                  <div className="mt-4 grid grid-cols-2 gap-4">
+                    <div className="text-center p-4 bg-red-50 rounded-lg">
+                      <p className="text-2xl font-bold text-red-600">{analisisOp?.patrones_fraude.alto_riesgo || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">Alto Riesgo</p>
+                      <p className="text-xs text-gray-400">Error {">"} 3% + perno no norm.</p>
+                    </div>
+                    <div className="text-center p-4 bg-orange-50 rounded-lg">
+                      <p className="text-2xl font-bold text-orange-600">{analisisOp?.patrones_fraude.medio_riesgo || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">Medio Riesgo</p>
+                      <p className="text-xs text-gray-400">Error {">"} 2% + anormal</p>
+                    </div>
+                    <div className="text-center p-4 bg-amber-50 rounded-lg col-span-2">
+                      <p className="text-2xl font-bold text-amber-600">{analisisOp?.patrones_fraude.perno_anormal || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">Perno Anormal + No Normal</p>
+                    </div>
+                  </div>
+                </Card>
+              </div>
+
+              {/* Seguimiento de Normalización */}
+              <Card className="mb-6">
+                <Title>Seguimiento de Normalización</Title>
+                <Text className="text-gray-500">Estado de pendientes de normalización</Text>
+                <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="text-center p-4 bg-gray-50 rounded-lg">
+                    <p className="text-2xl font-bold text-gray-700">{analisisOp?.seguimiento_normalizacion.total || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">Total Inspecciones</p>
+                  </div>
+                  <div className="text-center p-4 bg-amber-50 rounded-lg">
+                    <p className="text-2xl font-bold text-amber-600">{analisisOp?.seguimiento_normalizacion.pendientes || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">Pendientes Normalización</p>
+                  </div>
+                  <div className="text-center p-4 bg-orange-50 rounded-lg">
+                    <p className="text-2xl font-bold text-orange-600">{analisisOp?.seguimiento_normalizacion.pernos_sin_normalizar || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">Pernos Sin Normalizar</p>
+                  </div>
+                  <div className="text-center p-4 bg-red-50 rounded-lg">
+                    <p className="text-2xl font-bold text-red-600">{analisisOp?.seguimiento_normalizacion.doble_pendiente || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">Doble Pendiente</p>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Ranking de Contratistas */}
+              <Card className="mb-6">
+                <Title>Ranking de Contratistas</Title>
+                <Text className="text-gray-500">Calidad de inspección por contratista</Text>
+                <Table className="mt-4">
+                  <TableHead>
+                    <TableRow>
+                      <TableHeaderCell>Contratista</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Total</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Normales</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Tasa</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Error Prom.</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Pernos No Norm.</TableHeaderCell>
+                      <TableHeaderCell>Calidad</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {analisisOp?.ranking_contratistas.slice(0, 10).map((c) => (
+                      <TableRow key={c.contratista}>
+                        <TableCell className="font-medium">{c.contratista}</TableCell>
+                        <TableCell className="text-right">{c.total}</TableCell>
+                        <TableCell className="text-right text-emerald-600">{c.normales}</TableCell>
+                        <TableCell className="text-right">
+                          <span className={c.tasa_normalidad >= 80 ? 'text-emerald-600' : c.tasa_normalidad >= 60 ? 'text-amber-600' : 'text-rose-600'}>
+                            {c.tasa_normalidad}%
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">{c.error_promedio}%</TableCell>
+                        <TableCell className="text-right text-rose-600">{c.pernos_no_norm}</TableCell>
+                        <TableCell>
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            c.calidad === 'buena' ? 'bg-emerald-100 text-emerald-700' :
+                            c.calidad === 'regular' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
+                          }`}>
+                            {c.calidad}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Card>
+
+              {/* Clientes de Alto Riesgo */}
+              {analisisOp?.clientes_alto_riesgo && analisisOp.clientes_alto_riesgo.length > 0 && (
+                <Card className="mb-6">
+                  <Title className="flex items-center gap-2">
+                    <AlertOctagon size={20} className="text-red-500" />
+                    Clientes de Alto Riesgo
+                  </Title>
+                  <Text className="text-gray-500">Clientes con múltiples inspecciones anormales</Text>
+                  <Table className="mt-4">
+                    <TableHead>
+                      <TableRow>
+                        <TableHeaderCell>Cliente</TableHeaderCell>
+                        <TableHeaderCell>Nombre</TableHeaderCell>
+                        <TableHeaderCell>Comuna</TableHeaderCell>
+                        <TableHeaderCell className="text-right">Inspecciones</TableHeaderCell>
+                        <TableHeaderCell className="text-right">Anormales</TableHeaderCell>
+                        <TableHeaderCell className="text-right">% Anorm.</TableHeaderCell>
+                        <TableHeaderCell className="text-right">Max Error</TableHeaderCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {analisisOp.clientes_alto_riesgo.slice(0, 10).map((c) => (
+                        <TableRow key={c.cliente}>
+                          <TableCell className="font-medium">{c.cliente}</TableCell>
+                          <TableCell className="text-gray-500 truncate max-w-[150px]">{c.nombre}</TableCell>
+                          <TableCell className="text-gray-500">{c.comuna}</TableCell>
+                          <TableCell className="text-right">{c.inspecciones}</TableCell>
+                          <TableCell className="text-right text-rose-600">{c.anormales}</TableCell>
+                          <TableCell className="text-right">
+                            <span className={c.pct_anormales >= 50 ? 'text-rose-600 font-medium' : 'text-amber-600'}>
+                              {c.pct_anormales}%
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right text-rose-600">{c.max_error}%</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Card>
+              )}
+
+              {/* Calidad de Instalación por Comuna */}
+              <Card>
+                <Title>Calidad de Instalación por Comuna</Title>
+                <Text className="text-gray-500">Estado de componentes por ubicación</Text>
+                <Table className="mt-4">
+                  <TableHead>
+                    <TableRow>
+                      <TableHeaderCell>Comuna</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Total</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Acom. Anormal</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Caja Anormal</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Tapa Anormal</TableHeaderCell>
+                      <TableHeaderCell className="text-right">% Problemas</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {analisisOp?.calidad_instalacion_comuna.slice(0, 10).map((c) => (
+                      <TableRow key={c.comuna}>
+                        <TableCell className="font-medium">{c.comuna}</TableCell>
+                        <TableCell className="text-right">{c.total}</TableCell>
+                        <TableCell className="text-right text-rose-600">{c.acometida_anormal}</TableCell>
+                        <TableCell className="text-right text-amber-600">{c.caja_anormal}</TableCell>
+                        <TableCell className="text-right text-orange-600">{c.tapa_anormal}</TableCell>
+                        <TableCell className="text-right">
+                          <span className={c.pct_problemas >= 20 ? 'text-rose-600 font-medium' : c.pct_problemas >= 10 ? 'text-amber-600' : 'text-gray-600'}>
+                            {c.pct_problemas}%
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </Card>
             </TabPanel>
 

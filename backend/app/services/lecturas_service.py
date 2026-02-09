@@ -4,10 +4,21 @@ Optimizado: queries SQL directas en vez de cargar DataFrames completos.
 """
 
 import asyncio
+from datetime import datetime, date
 from typing import Optional, Dict, Any, List
 from ..core.config import settings
 from .db_queries import execute_query, execute_scalar
 from .cache import cached
+
+
+def _parse_date(date_str: Optional[str]) -> Optional[date]:
+    """Convert date string to date object for asyncpg compatibility."""
+    if not date_str:
+        return None
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 META_CUMPLIMIENTO_PLAZO = 90
 
@@ -35,11 +46,15 @@ def _build_where(
         conditions.append("UPPER(origen) = UPPER(:origen)")
         params["origen"] = origen
     if fecha_desde:
-        conditions.append("fecha_ingreso >= :fecha_desde")
-        params["fecha_desde"] = fecha_desde
+        parsed_desde = _parse_date(fecha_desde)
+        if parsed_desde:
+            conditions.append("fecha_ingreso >= :fecha_desde")
+            params["fecha_desde"] = parsed_desde
     if fecha_hasta:
-        conditions.append("fecha_ingreso <= :fecha_hasta")
-        params["fecha_hasta"] = fecha_hasta
+        parsed_hasta = _parse_date(fecha_hasta)
+        if parsed_hasta:
+            conditions.append("fecha_ingreso <= :fecha_hasta")
+            params["fecha_hasta"] = parsed_hasta
     if mes:
         conditions.append("mes = :mes")
         params["mes"] = mes

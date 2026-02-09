@@ -101,10 +101,10 @@ def truncate_and_insert(engine, table: str, df: pd.DataFrame, chunksize: int = 5
 
 def process_nncc(engine) -> list[str]:
     """NNCC - single Excel file."""
-    src = str(ENEL_DIR / "1. NNCC" / "2025-05 INFORME NNCC (2024-2029) DIC 2025.xlsx")
+    src = str(ENEL_DIR / "1. NNCC" / "2025-05 INFORME NNCC (2024-2029) ENE 2026.xlsx")
     # Fallback: check data dir directly
     if not os.path.exists(src):
-        alt = str(DATA_DIR / "2025-05 INFORME NNCC (2024-2029) DIC 2025.xlsx")
+        alt = str(DATA_DIR / "2025-05 INFORME NNCC (2024-2029) ENE 2026.xlsx")
         if os.path.exists(alt):
             src = alt
         else:

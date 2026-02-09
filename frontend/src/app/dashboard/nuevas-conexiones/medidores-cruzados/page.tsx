@@ -34,6 +34,9 @@ import {
   Users,
   MapPin,
   GitCompare,
+  Activity,
+  AlertOctagon,
+  Clock,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { ExportOverlay } from '@/components/ui/ExportOverlay'
@@ -47,6 +50,67 @@ interface Periodos {
   anios: number[]
   ultimo_mes: number | null
   ultimo_anio: number | null
+}
+
+interface AnalisisOperacional {
+  tiempos_proceso: {
+    correo_asignacion: number
+    asignacion_analisis: number
+    analisis_inspeccion: number
+    total_dias: number
+    max_dias: number
+    min_dias: number
+    casos_mayor_30: number
+    casos_mayor_60: number
+    total: number
+  }
+  cuellos_botella: Array<{
+    etapa: string
+    cantidad: number
+    sin_inspeccion: number
+    dias_promedio: number
+    pct_estancado: number
+  }>
+  detalle_resultados: {
+    mal_ejecutados: number
+    bien_ejecutados: number
+    medidor_no_encontrado: number
+    medidor_diferente: number
+    medidor_cruzado: number
+    sin_observacion: number
+    total: number
+  }
+  ranking_inspectores: Array<{
+    inspector: string
+    total: number
+    bien_ejecutados: number
+    mal_ejecutados: number
+    tasa_bien_ejecutado: number
+    dias_promedio: number
+    zonas_atendidas: number
+    sin_observacion: number
+    calidad_doc: string
+  }>
+  casos_pendientes: {
+    sin_inspeccion: number
+    sin_asignar: number
+    asignados_sin_inspeccionar: number
+    estancados: number
+    total: number
+  }
+  evolucion_tiempos: Array<{
+    periodo: string
+    total: number
+    dias_promedio: number
+    bien_ejecutados: number
+    mal_ejecutados: number
+    tasa_bien: number
+  }>
+  alertas: Array<{
+    tipo: string
+    titulo: string
+    mensaje: string
+  }>
 }
 
 const MESES = [
@@ -85,6 +149,7 @@ export default function MedidoresCruzadosPage() {
   // Data
   const [stats, setStats] = useState<MedidoresCruzadosStats | null>(null)
   const [data, setData] = useState<PaginatedResponse<MedidorCruzado> | null>(null)
+  const [analisisOp, setAnalisisOp] = useState<AnalisisOperacional | null>(null)
   const [zonas, setZonas] = useState<string[]>([])
   const [comunas, setComunas] = useState<string[]>([])
   const [estadosMedidor, setEstadosMedidor] = useState<string[]>([])
@@ -148,6 +213,21 @@ export default function MedidoresCruzadosPage() {
     }
   }, [page, searchTerm, globalZona, globalComuna, globalEstadoMedidor, globalMes, globalAnio, tableResultado])
 
+  const fetchAnalisisOperacional = useCallback(async () => {
+    try {
+      const params = new URLSearchParams()
+      if (globalZona) params.append('zona', globalZona)
+      if (globalMes) params.append('mes', MES_MAP[Number(globalMes)] || '')
+      if (globalAnio) params.append('anio', globalAnio)
+
+      const url = `/api/v1/medidores-cruzados/analisis-operacional${params.toString() ? '?' + params.toString() : ''}`
+      const response = await api.get<AnalisisOperacional>(url)
+      setAnalisisOp(response)
+    } catch (error) {
+      console.error('Error fetching analisis operacional:', error)
+    }
+  }, [globalZona, globalMes, globalAnio])
+
   const renderCount = useRef(0)
 
   useEffect(() => {
@@ -177,12 +257,14 @@ export default function MedidoresCruzadosPage() {
       if (initMes) dataParams.append('mes', MES_MAP[Number(initMes)] || '')
       if (initAnio) dataParams.append('anio', initAnio)
 
-      const [statsRes, dataRes] = await Promise.all([
+      const [statsRes, dataRes, analisisRes] = await Promise.all([
         api.get<MedidoresCruzadosStats>(`/api/v1/medidores-cruzados/stats${statsParams.toString() ? '?' + statsParams.toString() : ''}`),
         api.get<PaginatedResponse<MedidorCruzado>>(`/api/v1/medidores-cruzados?${dataParams.toString()}`),
+        api.get<AnalisisOperacional>(`/api/v1/medidores-cruzados/analisis-operacional${statsParams.toString() ? '?' + statsParams.toString() : ''}`),
       ])
       setStats(statsRes)
       setData(dataRes)
+      setAnalisisOp(analisisRes)
       setGlobalMes(initMes)
       setGlobalAnio(initAnio)
       setLoading(false)
@@ -198,11 +280,11 @@ export default function MedidoresCruzadosPage() {
     }
     const doRefresh = async () => {
       setRefreshing(true)
-      await Promise.all([fetchStats(), fetchData()])
+      await Promise.all([fetchStats(), fetchData(), fetchAnalisisOperacional()])
       setRefreshing(false)
     }
     doRefresh()
-  }, [fetchStats, fetchData])
+  }, [fetchStats, fetchData, fetchAnalisisOperacional])
 
   const clearGlobalFilters = () => {
     setGlobalZona('')
@@ -431,6 +513,7 @@ export default function MedidoresCruzadosPage() {
             <Tab icon={GitCompare}>Resumen Ejecutivo</Tab>
             <Tab icon={MapPin}>Distribucion</Tab>
             <Tab icon={TrendingUp}>Tendencias</Tab>
+            <Tab icon={Activity}>Análisis Operacional</Tab>
             <Tab icon={Search}>Datos</Tab>
           </TabList>
           <TabPanels>
@@ -638,6 +721,240 @@ export default function MedidoresCruzadosPage() {
                   ))}
                 </div>
               </Card>
+            </TabPanel>
+
+            {/* Análisis Operacional Panel */}
+            <TabPanel>
+              {/* Alertas Operacionales */}
+              {analisisOp?.alertas && analisisOp.alertas.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                  {analisisOp.alertas.map((alerta, idx) => (
+                    <Card
+                      key={idx}
+                      decoration="left"
+                      decorationColor={alerta.tipo === 'danger' ? 'rose' : alerta.tipo === 'warning' ? 'amber' : 'blue'}
+                    >
+                      <Flex alignItems="start" className="gap-3">
+                        <div className={`p-2 rounded-lg ${
+                          alerta.tipo === 'danger' ? 'bg-rose-100' :
+                          alerta.tipo === 'warning' ? 'bg-amber-100' : 'bg-blue-100'
+                        }`}>
+                          <AlertOctagon className={
+                            alerta.tipo === 'danger' ? 'text-rose-600' :
+                            alerta.tipo === 'warning' ? 'text-amber-600' : 'text-blue-600'
+                          } size={20} />
+                        </div>
+                        <div>
+                          <Title className="text-base">{alerta.titulo}</Title>
+                          <Text className="mt-1">{alerta.mensaje}</Text>
+                        </div>
+                      </Flex>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                {/* Tiempos de Proceso */}
+                <Card>
+                  <Title className="flex items-center gap-2">
+                    <Clock size={20} className="text-blue-500" />
+                    Tiempos de Proceso
+                  </Title>
+                  <Text className="text-gray-500">Días promedio por etapa</Text>
+                  <div className="mt-4 space-y-3">
+                    <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
+                      <div>
+                        <span className="text-sm font-medium">Correo → Asignación</span>
+                        <p className="text-xs text-gray-500">Tiempo hasta asignar inspector</p>
+                      </div>
+                      <span className="text-lg font-bold text-blue-600">{analisisOp?.tiempos_proceso.correo_asignacion || 0} días</span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-violet-50 rounded-lg">
+                      <div>
+                        <span className="text-sm font-medium">Asignación → Análisis</span>
+                        <p className="text-xs text-gray-500">Tiempo de análisis</p>
+                      </div>
+                      <span className="text-lg font-bold text-violet-600">{analisisOp?.tiempos_proceso.asignacion_analisis || 0} días</span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-cyan-50 rounded-lg">
+                      <div>
+                        <span className="text-sm font-medium">Análisis → Inspección</span>
+                        <p className="text-xs text-gray-500">Tiempo hasta inspeccionar</p>
+                      </div>
+                      <span className="text-lg font-bold text-cyan-600">{analisisOp?.tiempos_proceso.analisis_inspeccion || 0} días</span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-gray-100 rounded-lg border-2 border-gray-200">
+                      <div>
+                        <span className="text-sm font-bold">Total Proceso</span>
+                        <p className="text-xs text-gray-500">Promedio total</p>
+                      </div>
+                      <span className={`text-xl font-bold ${
+                        (analisisOp?.tiempos_proceso.total_dias || 0) <= 30 ? 'text-emerald-600' :
+                        (analisisOp?.tiempos_proceso.total_dias || 0) <= 60 ? 'text-amber-600' : 'text-rose-600'
+                      }`}>{analisisOp?.tiempos_proceso.total_dias || 0} días</span>
+                    </div>
+                  </div>
+                </Card>
+
+                {/* Casos Pendientes */}
+                <Card>
+                  <Title>Casos Pendientes y Estancados</Title>
+                  <Text className="text-gray-500">Estado de casos sin finalizar</Text>
+                  <div className="mt-4 grid grid-cols-2 gap-4">
+                    <div className="text-center p-4 bg-gray-50 rounded-lg">
+                      <p className="text-2xl font-bold text-gray-700">{analisisOp?.casos_pendientes.total || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">Total Casos</p>
+                    </div>
+                    <div className="text-center p-4 bg-amber-50 rounded-lg">
+                      <p className="text-2xl font-bold text-amber-600">{analisisOp?.casos_pendientes.sin_inspeccion || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">Sin Inspección</p>
+                    </div>
+                    <div className="text-center p-4 bg-orange-50 rounded-lg">
+                      <p className="text-2xl font-bold text-orange-600">{analisisOp?.casos_pendientes.asignados_sin_inspeccionar || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">Asignados {">"} 15 días</p>
+                    </div>
+                    <div className="text-center p-4 bg-red-50 rounded-lg">
+                      <p className="text-2xl font-bold text-red-600">{analisisOp?.casos_pendientes.estancados || 0}</p>
+                      <p className="text-xs text-gray-500 mt-1">Estancados {">"} 30 días</p>
+                    </div>
+                  </div>
+                </Card>
+              </div>
+
+              {/* Detalle de Resultados */}
+              <Card className="mb-6">
+                <Title>Detalle de Resultados de Inspección</Title>
+                <Text className="text-gray-500">Análisis de inspecciones realizadas</Text>
+                <div className="mt-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+                  <div className="text-center p-3 bg-gray-50 rounded-lg">
+                    <p className="text-xl font-bold text-gray-700">{analisisOp?.detalle_resultados.total || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">Total</p>
+                  </div>
+                  <div className="text-center p-3 bg-emerald-50 rounded-lg">
+                    <p className="text-xl font-bold text-emerald-600">{analisisOp?.detalle_resultados.bien_ejecutados || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">Bien Ejec.</p>
+                  </div>
+                  <div className="text-center p-3 bg-rose-50 rounded-lg">
+                    <p className="text-xl font-bold text-rose-600">{analisisOp?.detalle_resultados.mal_ejecutados || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">Mal Ejec.</p>
+                  </div>
+                  <div className="text-center p-3 bg-amber-50 rounded-lg">
+                    <p className="text-xl font-bold text-amber-600">{analisisOp?.detalle_resultados.medidor_no_encontrado || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">No Encontr.</p>
+                  </div>
+                  <div className="text-center p-3 bg-orange-50 rounded-lg">
+                    <p className="text-xl font-bold text-orange-600">{analisisOp?.detalle_resultados.medidor_diferente || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">Diferente</p>
+                  </div>
+                  <div className="text-center p-3 bg-violet-50 rounded-lg">
+                    <p className="text-xl font-bold text-violet-600">{analisisOp?.detalle_resultados.medidor_cruzado || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">Cruzado</p>
+                  </div>
+                  <div className="text-center p-3 bg-red-50 rounded-lg">
+                    <p className="text-xl font-bold text-red-600">{analisisOp?.detalle_resultados.sin_observacion || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">Sin Obs.</p>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Cuellos de Botella */}
+              {analisisOp?.cuellos_botella && analisisOp.cuellos_botella.length > 0 && (
+                <Card className="mb-6">
+                  <Title>Cuellos de Botella por Etapa</Title>
+                  <Text className="text-gray-500">Casos estancados por etapa del proceso</Text>
+                  <Table className="mt-4">
+                    <TableHead>
+                      <TableRow>
+                        <TableHeaderCell>Etapa</TableHeaderCell>
+                        <TableHeaderCell className="text-right">Cantidad</TableHeaderCell>
+                        <TableHeaderCell className="text-right">Sin Inspección</TableHeaderCell>
+                        <TableHeaderCell className="text-right">% Estancado</TableHeaderCell>
+                        <TableHeaderCell className="text-right">Días Prom.</TableHeaderCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {analisisOp.cuellos_botella.slice(0, 10).map((c) => (
+                        <TableRow key={c.etapa}>
+                          <TableCell className="font-medium">{c.etapa}</TableCell>
+                          <TableCell className="text-right">{c.cantidad}</TableCell>
+                          <TableCell className="text-right text-amber-600">{c.sin_inspeccion}</TableCell>
+                          <TableCell className="text-right">
+                            <span className={c.pct_estancado >= 50 ? 'text-rose-600 font-medium' : c.pct_estancado >= 30 ? 'text-amber-600' : 'text-gray-600'}>
+                              {c.pct_estancado}%
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right">{c.dias_promedio}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Card>
+              )}
+
+              {/* Ranking de Inspectores */}
+              <Card className="mb-6">
+                <Title>Ranking de Inspectores</Title>
+                <Text className="text-gray-500">Desempeño detallado por inspector</Text>
+                <Table className="mt-4">
+                  <TableHead>
+                    <TableRow>
+                      <TableHeaderCell>Inspector</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Total</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Bien Ejec.</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Mal Ejec.</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Tasa</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Días Prom.</TableHeaderCell>
+                      <TableHeaderCell>Calidad Doc.</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {analisisOp?.ranking_inspectores.slice(0, 10).map((i) => (
+                      <TableRow key={i.inspector}>
+                        <TableCell className="font-medium">{i.inspector}</TableCell>
+                        <TableCell className="text-right">{i.total}</TableCell>
+                        <TableCell className="text-right text-emerald-600">{i.bien_ejecutados}</TableCell>
+                        <TableCell className="text-right text-rose-600">{i.mal_ejecutados}</TableCell>
+                        <TableCell className="text-right">
+                          <span className={i.tasa_bien_ejecutado >= 80 ? 'text-emerald-600' : i.tasa_bien_ejecutado >= 60 ? 'text-amber-600' : 'text-rose-600'}>
+                            {i.tasa_bien_ejecutado}%
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">{i.dias_promedio}</TableCell>
+                        <TableCell>
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            i.calidad_doc === 'buena' ? 'bg-emerald-100 text-emerald-700' :
+                            i.calidad_doc === 'regular' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
+                          }`}>
+                            {i.calidad_doc}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Card>
+
+              {/* Evolución de Tiempos */}
+              {analisisOp?.evolucion_tiempos && analisisOp.evolucion_tiempos.length > 0 && (
+                <Card>
+                  <Title>Evolución de Tiempos de Resolución</Title>
+                  <Text className="text-gray-500">Días promedio por mes</Text>
+                  <AreaChart
+                    className="mt-4 h-64"
+                    data={analisisOp.evolucion_tiempos.map(e => ({
+                      mes: e.periodo,
+                      'Días Promedio': e.dias_promedio,
+                      'Tasa Bien Ejec. (%)': e.tasa_bien,
+                    }))}
+                    index="mes"
+                    categories={['Días Promedio', 'Tasa Bien Ejec. (%)']}
+                    colors={['blue', 'emerald']}
+                    valueFormatter={(v) => v.toFixed(1)}
+                    showAnimation
+                  />
+                </Card>
+              )}
             </TabPanel>
 
             {/* Datos Panel */}
