@@ -34,6 +34,9 @@ npm-debug.log*
 # Keep CSV for MVP
 # *.csv
 
+# Pipeline manifest
+scripts/.pipeline_manifest.json
+
 # Claude AI
 .claude/
 

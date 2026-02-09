@@ -1,158 +1,18 @@
 """
 Servicio de datos para el modulo de Telecomunicaciones.
-Inspecciones de factibilidad para instalaciones en postes.
+Optimizado: queries SQL directas en vez de cargar DataFrames completos.
 """
 
-import pandas as pd
-import os
+import asyncio
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from ..core.config import settings
+from .db_queries import execute_query, execute_scalar
+from .cache import cached
 
-
-def read_data_file(base_name: str, data_dir: str, encoding: str = 'utf-8') -> pd.DataFrame:
-    """
-    Lee un archivo de datos, prefiriendo Parquet sobre CSV para mejor rendimiento.
-    """
-    parquet_dir = os.path.join(data_dir, "parquet")
-    parquet_path = os.path.join(parquet_dir, f"{base_name}.parquet")
-    csv_path = os.path.join(data_dir, f"{base_name}.csv")
-
-    if os.path.exists(parquet_path):
-        return pd.read_parquet(parquet_path)
-    elif os.path.exists(csv_path):
-        return pd.read_csv(csv_path, encoding=encoding, low_memory=False)
-    else:
-        return pd.DataFrame()
-
-# Global dataframe cache
-_df_teleco_cache: Optional[pd.DataFrame] = None
-
-# Meta de aprobacion
 META_APROBACION = 50
 
 
-def load_teleco_data(force_reload: bool = False) -> pd.DataFrame:
-    """Load data for Telecomunicaciones into a pandas DataFrame with caching."""
-    global _df_teleco_cache
-
-    if _df_teleco_cache is not None and not force_reload:
-        return _df_teleco_cache
-
-    base_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-        "data"
-    )
-
-    df = read_data_file("informe_teleco", base_path, encoding='utf-8-sig')
-
-    if df.empty:
-        print(f"Teleco data not found")
-        _df_teleco_cache = pd.DataFrame()
-        return _df_teleco_cache
-
-    print(f"Loaded Teleco: {len(df)} records")
-
-    # Mapeo de columnas
-    column_mapping = {
-        'ID': 'id',
-        'PAGO ERICK': 'pago',
-        'Family Case Number': 'family_case',
-        'Estado del Caso': 'estado_caso',
-        'Cantidad de Postes': 'cantidad_postes',
-        'Nombre de empresa / Cliente': 'empresa',
-        'Comuna': 'comuna',
-        'Fecha 1ra. Inspección': 'fecha_primera_inspeccion',
-        'Fecha que se asignó': 'fecha_asignacion',
-        'Fecha de inspección': 'fecha_inspeccion',
-        'TIENE PLANO?': 'tiene_plano',
-        'X': 'coord_x',
-        'Y': 'coord_y',
-        'RESULTADO (ERICK)': 'resultado',
-        'Observación TERRENO': 'observacion',
-        'INSPECTOR': 'inspector',
-        'E. DE P.': 'etapa',
-    }
-
-    # Renombrar columnas que existen
-    rename_dict = {k: v for k, v in column_mapping.items() if k in df.columns}
-    df = df.rename(columns=rename_dict)
-
-    # Buscar columna de numero de caso (tiene caracteres especiales)
-    for col in df.columns:
-        if 'mero de caso' in str(col).lower() or 'número' in str(col).lower():
-            df = df.rename(columns={col: 'numero_caso'})
-            break
-
-    # Limpiar y normalizar datos
-    if 'empresa' in df.columns:
-        df['empresa'] = df['empresa'].fillna('').str.strip()
-        # Simplificar nombres de empresas largas
-        df['empresa_corta'] = df['empresa'].apply(lambda x:
-            'ENTEL' if 'Telecomunicaciones' in str(x) else
-            'UFINET' if 'Ufinet' in str(x) else
-            'WOM' if 'WOM' in str(x) else
-            'QMC' if 'QMC' in str(x) else
-            'ATP' if 'ATP' in str(x) else
-            'CIRION' if 'CIRION' in str(x) else
-            str(x)[:20] if len(str(x)) > 20 else str(x)
-        )
-
-    if 'comuna' in df.columns:
-        df['comuna'] = df['comuna'].fillna('').str.strip().str.upper()
-
-    if 'inspector' in df.columns:
-        df['inspector'] = df['inspector'].fillna('').str.strip().str.upper()
-
-    if 'resultado' in df.columns:
-        df['resultado'] = df['resultado'].fillna('').str.strip().str.upper()
-
-    if 'tiene_plano' in df.columns:
-        df['tiene_plano'] = df['tiene_plano'].fillna('').str.strip().str.upper()
-        # Normalizar valores de tiene_plano
-        df['tiene_plano_norm'] = df['tiene_plano'].apply(lambda x:
-            'SI' if str(x).upper() == 'SI' else
-            'NO' if str(x).upper() == 'NO' else
-            'INCOMPLETO' if 'INCOMPLETO' in str(x).upper() else
-            'PARCIAL' if 'DE' in str(x) else  # "2 de 6", "1 de 7", etc.
-            'OTRO'
-        )
-
-    if 'estado_caso' in df.columns:
-        df['estado_caso'] = df['estado_caso'].fillna('').str.strip()
-        # Simplificar estados
-        df['estado_simple'] = df['estado_caso'].apply(lambda x:
-            'NEW FEASIBILITY' if 'New Feasibility' in str(x) else
-            'IN PROGRESS' if 'In Progress' in str(x) else
-            'OTRO'
-        )
-
-    # Limpiar cantidad de postes
-    if 'cantidad_postes' in df.columns:
-        df['cantidad_postes'] = pd.to_numeric(df['cantidad_postes'], errors='coerce').fillna(0).astype(int)
-
-    # Parsear fechas
-    date_cols = ['fecha_primera_inspeccion', 'fecha_asignacion', 'fecha_inspeccion']
-    for col in date_cols:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors='coerce')
-
-    # Calcular dias desde asignacion hasta inspeccion
-    if 'fecha_asignacion' in df.columns and 'fecha_inspeccion' in df.columns:
-        df['dias_inspeccion'] = (df['fecha_inspeccion'] - df['fecha_asignacion']).dt.days
-
-    # Agregar mes y año para agrupacion y filtrado
-    if 'fecha_inspeccion' in df.columns:
-        df['mes_periodo'] = df['fecha_inspeccion'].dt.to_period('M').astype(str)
-        df['mes'] = df['fecha_inspeccion'].dt.month
-        df['anio'] = df['fecha_inspeccion'].dt.year
-
-    _df_teleco_cache = df
-    print(f"Total Teleco loaded: {len(df)} records")
-    return df
-
-
-def get_teleco_filtered_data(
-    search: Optional[str] = None,
+def _build_where(
     empresa: Optional[str] = None,
     comuna: Optional[str] = None,
     inspector: Optional[str] = None,
@@ -162,485 +22,381 @@ def get_teleco_filtered_data(
     fecha_hasta: Optional[str] = None,
     mes: Optional[int] = None,
     anio: Optional[int] = None,
-    page: int = 1,
-    limit: int = 50,
-    sort_by: str = "fecha_inspeccion",
-    order: str = "desc"
-) -> Dict[str, Any]:
-    """Get filtered and paginated Teleco data."""
-    df = load_teleco_data()
+    search: Optional[str] = None,
+) -> tuple[str, dict]:
+    conditions = []
+    params = {}
 
-    if df.empty:
-        return {
-            "items": [],
-            "total": 0,
-            "page": page,
-            "limit": limit,
-            "pages": 0
-        }
-
-    # Apply filters
-    mask = pd.Series([True] * len(df))
-
+    if empresa:
+        conditions.append("UPPER(empresa_corta) = UPPER(:empresa)")
+        params["empresa"] = empresa
+    if comuna:
+        conditions.append("UPPER(comuna) = UPPER(:comuna)")
+        params["comuna"] = comuna
+    if inspector:
+        conditions.append("inspector ILIKE :inspector")
+        params["inspector"] = f"%{inspector}%"
+    if resultado:
+        conditions.append("UPPER(resultado) = UPPER(:resultado)")
+        params["resultado"] = resultado
+    if tiene_plano:
+        conditions.append("UPPER(tiene_plano_norm) = UPPER(:tiene_plano)")
+        params["tiene_plano"] = tiene_plano
+    if fecha_desde:
+        conditions.append("fecha_inspeccion >= :fecha_desde")
+        params["fecha_desde"] = fecha_desde
+    if fecha_hasta:
+        conditions.append("fecha_inspeccion <= :fecha_hasta")
+        params["fecha_hasta"] = fecha_hasta
+    if mes:
+        conditions.append("mes = :mes")
+        params["mes"] = mes
+    if anio:
+        conditions.append("anio = :anio")
+        params["anio"] = anio
     if search:
-        search_mask = pd.Series([False] * len(df))
-        search_cols = ['empresa', 'comuna', 'inspector', 'observacion', 'numero_caso']
-        for col in search_cols:
-            if col in df.columns:
-                search_mask |= df[col].astype(str).str.contains(search, case=False, na=False)
-        mask &= search_mask
-
-    if empresa and 'empresa_corta' in df.columns:
-        mask &= df['empresa_corta'].str.upper() == empresa.upper()
-
-    if comuna and 'comuna' in df.columns:
-        mask &= df['comuna'].str.upper() == comuna.upper()
-
-    if inspector and 'inspector' in df.columns:
-        mask &= df['inspector'].str.contains(inspector, case=False, na=False)
-
-    if resultado and 'resultado' in df.columns:
-        mask &= df['resultado'].str.upper() == resultado.upper()
-
-    if tiene_plano and 'tiene_plano_norm' in df.columns:
-        mask &= df['tiene_plano_norm'].str.upper() == tiene_plano.upper()
-
-    if fecha_desde and 'fecha_inspeccion' in df.columns:
-        mask &= df['fecha_inspeccion'] >= pd.to_datetime(fecha_desde)
-
-    if fecha_hasta and 'fecha_inspeccion' in df.columns:
-        mask &= df['fecha_inspeccion'] <= pd.to_datetime(fecha_hasta)
-
-    if mes and 'mes' in df.columns:
-        mask &= df['mes'] == mes
-
-    if anio and 'anio' in df.columns:
-        mask &= df['anio'] == anio
-
-    filtered_df = df[mask].copy()
-
-    # Sort
-    if sort_by in filtered_df.columns:
-        filtered_df = filtered_df.sort_values(
-            by=sort_by,
-            ascending=(order == "asc"),
-            na_position='last'
+        conditions.append(
+            "(empresa ILIKE :search OR comuna ILIKE :search "
+            "OR inspector ILIKE :search OR observacion ILIKE :search "
+            "OR CAST(numero_caso AS TEXT) ILIKE :search)"
         )
+        params["search"] = f"%{search}%"
 
-    # Paginate
-    total = len(filtered_df)
-    pages = (total + limit - 1) // limit
-    start = (page - 1) * limit
-    end = start + limit
-
-    paginated_df = filtered_df.iloc[start:end]
-
-    # Seleccionar columnas para la respuesta
-    output_cols = ['id', 'numero_caso', 'family_case', 'empresa_corta', 'comuna',
-                   'cantidad_postes', 'fecha_inspeccion', 'resultado', 'tiene_plano_norm',
-                   'inspector', 'observacion', 'estado_simple']
-    output_cols = [c for c in output_cols if c in paginated_df.columns]
-
-    items = paginated_df[output_cols].to_dict(orient='records')
-
-    # Format dates for JSON
-    for item in items:
-        for key, value in item.items():
-            if isinstance(value, pd.Timestamp):
-                item[key] = value.strftime('%Y-%m-%d') if pd.notna(value) else None
-            elif pd.isna(value):
-                item[key] = None
-
-    return {
-        "items": items,
-        "total": total,
-        "page": page,
-        "limit": limit,
-        "pages": pages
-    }
+    where = " AND ".join(conditions) if conditions else "1=1"
+    return where, params
 
 
-def get_teleco_stats(
-    empresa: Optional[str] = None,
-    comuna: Optional[str] = None,
-    fecha_desde: Optional[str] = None,
-    fecha_hasta: Optional[str] = None,
-    mes: Optional[int] = None,
-    anio: Optional[int] = None,
+async def get_teleco_filtered_data(
+    search: Optional[str] = None, empresa: Optional[str] = None,
+    comuna: Optional[str] = None, inspector: Optional[str] = None,
+    resultado: Optional[str] = None, tiene_plano: Optional[str] = None,
+    fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None,
+    mes: Optional[int] = None, anio: Optional[int] = None,
+    page: int = 1, limit: int = 50,
+    sort_by: str = "fecha_inspeccion", order: str = "desc"
 ) -> Dict[str, Any]:
-    """Get aggregated statistics for Telecomunicaciones."""
-    df = load_teleco_data()
+    where, params = _build_where(
+        empresa=empresa, comuna=comuna, inspector=inspector, resultado=resultado,
+        tiene_plano=tiene_plano, fecha_desde=fecha_desde, fecha_hasta=fecha_hasta,
+        mes=mes, anio=anio, search=search,
+    )
+
+    allowed_sort = {"fecha_inspeccion", "empresa_corta", "comuna", "inspector", "resultado"}
+    if sort_by not in allowed_sort:
+        sort_by = "fecha_inspeccion"
+    order_dir = "ASC" if order == "asc" else "DESC"
+
+    total = await execute_scalar(f"SELECT COUNT(*) FROM telecomunicaciones WHERE {where}", params)
+    offset = (page - 1) * limit
+    params["limit"] = limit
+    params["offset"] = offset
+
+    rows = await execute_query(f"""
+        SELECT numero_caso, family_case, empresa_corta, comuna,
+               cantidad_postes,
+               TO_CHAR(fecha_inspeccion, 'YYYY-MM-DD') as fecha_inspeccion,
+               resultado, tiene_plano_norm, inspector, observacion, estado_simple
+        FROM telecomunicaciones WHERE {where}
+        ORDER BY {sort_by} {order_dir} NULLS LAST
+        LIMIT :limit OFFSET :offset
+    """, params)
+
+    pages = (total + limit - 1) // limit if total else 0
+    return {"items": rows, "total": total or 0, "page": page, "limit": limit, "pages": pages}
+
+
+@cached(ttl_seconds=60)
+async def get_teleco_stats(
+    empresa: Optional[str] = None, comuna: Optional[str] = None,
+    fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None,
+    mes: Optional[int] = None, anio: Optional[int] = None,
+) -> Dict[str, Any]:
+    where, params = _build_where(
+        empresa=empresa, comuna=comuna, fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta, mes=mes, anio=anio,
+    )
 
     empty_response = {
-        "total": 0,
-        "aprobados": 0,
-        "rechazados": 0,
-        "tasa_aprobacion": 0,
-        "total_postes": 0,
-        "promedio_postes": 0,
-        "con_plano": 0,
-        "sin_plano": 0,
-        "plano_incompleto": 0,
-        "por_empresa": [],
-        "por_comuna": [],
-        "por_inspector": [],
-        "por_resultado": {},
-        "por_mes": [],
-        "por_tiene_plano": [],
-        "motivos_rechazo": [],
-        "evolucion_mensual": [],
-        "comparativas": {
-            "aprobacion": {"actual": 0, "anterior": 0, "diferencia": 0},
-        },
+        "total": 0, "aprobados": 0, "rechazados": 0, "tasa_aprobacion": 0,
+        "total_postes": 0, "promedio_postes": 0,
+        "con_plano": 0, "sin_plano": 0, "plano_incompleto": 0,
+        "por_empresa": [], "por_comuna": [], "por_inspector": [],
+        "por_resultado": {}, "por_mes": [], "por_tiene_plano": [],
+        "motivos_rechazo": [], "evolucion_mensual": [],
+        "comparativas": {"aprobacion": {"actual": 0, "anterior": 0, "diferencia": 0}},
         "insights": [],
     }
 
-    if df.empty:
+    # --- Launch ALL independent queries in parallel ---
+    (
+        kpis,
+        emp_rows,
+        com_rows,
+        insp_rows,
+        res_rows,
+        plano_rows,
+        mes_rows,
+        evol_rows,
+        comp_rows,
+        motivos_row,
+    ) = await asyncio.gather(
+        # 1) KPIs
+        execute_query(f"""
+            SELECT
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE UPPER(resultado) = 'APROBADO') as aprobados,
+                COUNT(*) FILTER (WHERE UPPER(resultado) = 'RECHAZADO') as rechazados,
+                COALESCE(SUM(cantidad_postes), 0) as total_postes,
+                ROUND(AVG(cantidad_postes)::numeric, 1) as promedio_postes,
+                COUNT(*) FILTER (WHERE UPPER(tiene_plano_norm) = 'SI') as con_plano,
+                COUNT(*) FILTER (WHERE UPPER(tiene_plano_norm) = 'NO') as sin_plano,
+                COUNT(*) FILTER (WHERE UPPER(tiene_plano_norm) IN ('INCOMPLETO','PARCIAL')) as plano_incompleto
+            FROM telecomunicaciones WHERE {where}
+        """, params),
+        # 2) Por empresa
+        execute_query(f"""
+            SELECT empresa_corta as empresa, COUNT(*) as cantidad,
+                COUNT(*) FILTER (WHERE UPPER(resultado) = 'APROBADO') as aprobados,
+                COALESCE(SUM(cantidad_postes), 0) as postes
+            FROM telecomunicaciones WHERE {where} AND TRIM(COALESCE(empresa_corta,'')) != ''
+            GROUP BY empresa_corta ORDER BY cantidad DESC LIMIT 10
+        """, params),
+        # 3) Por comuna
+        execute_query(f"""
+            SELECT comuna, COUNT(*) as cantidad
+            FROM telecomunicaciones WHERE {where} AND TRIM(COALESCE(comuna,'')) != ''
+            GROUP BY comuna ORDER BY cantidad DESC LIMIT 15
+        """, params),
+        # 4) Por inspector
+        execute_query(f"""
+            SELECT inspector, COUNT(*) as cantidad,
+                COUNT(*) FILTER (WHERE UPPER(resultado) = 'APROBADO') as aprobados,
+                COALESCE(SUM(cantidad_postes), 0) as postes
+            FROM telecomunicaciones WHERE {where} AND TRIM(COALESCE(inspector,'')) != ''
+            GROUP BY inspector ORDER BY cantidad DESC
+        """, params),
+        # 5) Por resultado
+        execute_query(f"""
+            SELECT resultado, COUNT(*) as cantidad
+            FROM telecomunicaciones WHERE {where} AND TRIM(COALESCE(resultado,'')) != ''
+            GROUP BY resultado ORDER BY cantidad DESC
+        """, params),
+        # 6) Por tiene plano
+        execute_query(f"""
+            SELECT tiene_plano_norm as tipo, COUNT(*) as cantidad
+            FROM telecomunicaciones WHERE {where} AND tiene_plano_norm IS NOT NULL
+            GROUP BY tiene_plano_norm ORDER BY cantidad DESC
+        """, params),
+        # 7) Por mes
+        execute_query(f"""
+            SELECT mes, COUNT(*) as cantidad,
+                COUNT(*) FILTER (WHERE UPPER(resultado) = 'APROBADO') as aprobados
+            FROM telecomunicaciones WHERE {where} AND mes IS NOT NULL
+            GROUP BY mes ORDER BY mes
+        """, params),
+        # 8) Evolucion mensual
+        execute_query(f"""
+            SELECT TO_CHAR(fecha_inspeccion, 'YYYY-MM') as periodo,
+                COUNT(*) as casos,
+                COALESCE(SUM(cantidad_postes), 0) as postes,
+                COUNT(*) FILTER (WHERE UPPER(resultado) = 'APROBADO') as aprobados
+            FROM telecomunicaciones WHERE {where} AND fecha_inspeccion IS NOT NULL
+            GROUP BY periodo ORDER BY periodo
+        """, params),
+        # 9) Comparativas
+        execute_query(f"""
+            WITH ranked AS (
+                SELECT *, ROW_NUMBER() OVER (ORDER BY fecha_inspeccion) as rn,
+                    COUNT(*) OVER () as cnt
+                FROM telecomunicaciones WHERE {where} AND fecha_inspeccion IS NOT NULL
+            )
+            SELECT
+                CASE WHEN rn <= cnt/2 THEN 'primera' ELSE 'segunda' END as mitad,
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE UPPER(resultado) = 'APROBADO') as aprobados
+            FROM ranked GROUP BY mitad ORDER BY mitad
+        """, params),
+        # 10) Motivos de rechazo - single query with CASE WHEN / FILTER
+        execute_query(f"""
+            SELECT
+                COUNT(*) FILTER (WHERE LOWER(observacion) LIKE '%%saturacion%%' OR LOWER(observacion) LIKE '%%saturado%%' OR LOWER(observacion) LIKE '%%espacio aereo%%') as saturacion,
+                COUNT(*) FILTER (WHERE LOWER(observacion) LIKE '%%vanos fuera%%' OR LOWER(observacion) LIKE '%%vano fuera%%' OR LOWER(observacion) LIKE '%%distancia%%') as vanos_fuera,
+                COUNT(*) FILTER (WHERE LOWER(observacion) LIKE '%%escombro%%') as escombro,
+                COUNT(*) FILTER (WHERE LOWER(observacion) LIKE '%%vegetacion%%' OR LOWER(observacion) LIKE '%%poda%%' OR LOWER(observacion) LIKE '%%arbol%%') as vegetacion,
+                COUNT(*) FILTER (WHERE LOWER(observacion) LIKE '%%solucion mecanica%%' OR LOWER(observacion) LIKE '%%mecanica%%') as solucion_mecanica,
+                COUNT(*) FILTER (WHERE LOWER(observacion) LIKE '%%ya realizados%%' OR LOWER(observacion) LIKE '%%realizados en terreno%%') as ya_realizados,
+                COUNT(*) FILTER (WHERE LOWER(observacion) LIKE '%%reserva tecnica%%') as reserva_tecnica,
+                COUNT(*) FILTER (WHERE LOWER(observacion) LIKE '%%cruceta%%' OR LOWER(observacion) LIKE '%%mal estado%%') as crucetas,
+                COUNT(*) FILTER (WHERE LOWER(observacion) LIKE '%%apoyos%%' OR LOWER(observacion) LIKE '%%mas de 10%%' OR LOWER(observacion) LIKE '%%mas de 13%%') as sobrecarga
+            FROM telecomunicaciones WHERE {where} AND UPPER(resultado) = 'RECHAZADO'
+        """, params),
+    )
+
+    # --- Process results ---
+
+    if not kpis or kpis[0]["total"] == 0:
         return empty_response
 
-    # Apply filters
-    mask = pd.Series([True] * len(df))
-
-    if empresa and 'empresa_corta' in df.columns:
-        mask &= df['empresa_corta'].str.upper() == empresa.upper()
-
-    if comuna and 'comuna' in df.columns:
-        mask &= df['comuna'].str.upper() == comuna.upper()
-
-    if fecha_desde and 'fecha_inspeccion' in df.columns:
-        mask &= df['fecha_inspeccion'] >= pd.to_datetime(fecha_desde)
-
-    if fecha_hasta and 'fecha_inspeccion' in df.columns:
-        mask &= df['fecha_inspeccion'] <= pd.to_datetime(fecha_hasta)
-
-    if mes and 'mes' in df.columns:
-        mask &= df['mes'] == mes
-
-    if anio and 'anio' in df.columns:
-        mask &= df['anio'] == anio
-
-    df = df[mask].copy()
-
-    if df.empty:
-        return empty_response
-
-    total = len(df)
-
-    # Aprobados vs Rechazados
-    aprobados = 0
-    rechazados = 0
-    if 'resultado' in df.columns:
-        aprobados = int(len(df[df['resultado'] == 'APROBADO']))
-        rechazados = int(len(df[df['resultado'] == 'RECHAZADO']))
-
+    k = kpis[0]
+    total = k["total"]
+    aprobados = k["aprobados"]
+    rechazados = k["rechazados"]
     total_con_resultado = aprobados + rechazados
-    tasa_aprobacion = round((aprobados / total_con_resultado * 100), 1) if total_con_resultado > 0 else 0
+    tasa_aprobacion = round(aprobados / total_con_resultado * 100, 1) if total_con_resultado > 0 else 0
+    promedio_postes = float(k["promedio_postes"]) if k["promedio_postes"] else 0
 
-    # Postes
-    total_postes = 0
-    promedio_postes = 0
-    if 'cantidad_postes' in df.columns:
-        total_postes = int(df['cantidad_postes'].sum())
-        promedio_postes = round(df['cantidad_postes'].mean(), 1)
+    por_empresa = [
+        {"empresa": r["empresa"], "cantidad": r["cantidad"], "aprobados": r["aprobados"],
+         "tasa_aprobacion": round(r["aprobados"] / r["cantidad"] * 100, 1) if r["cantidad"] > 0 else 0,
+         "postes": r["postes"]}
+        for r in emp_rows
+    ]
 
-    # Tiene Plano
-    con_plano = 0
-    sin_plano = 0
-    plano_incompleto = 0
-    if 'tiene_plano_norm' in df.columns:
-        con_plano = int(len(df[df['tiene_plano_norm'] == 'SI']))
-        sin_plano = int(len(df[df['tiene_plano_norm'] == 'NO']))
-        plano_incompleto = int(len(df[df['tiene_plano_norm'].isin(['INCOMPLETO', 'PARCIAL'])]))
+    por_comuna = [{"comuna": r["comuna"], "cantidad": r["cantidad"]} for r in com_rows]
 
-    # Por Empresa
-    por_empresa = []
-    if 'empresa_corta' in df.columns:
-        empresas = df['empresa_corta'].value_counts().head(10)
-        for emp, count in empresas.items():
-            if emp and emp.strip():
-                emp_df = df[df['empresa_corta'] == emp]
-                aprobados_emp = len(emp_df[emp_df['resultado'] == 'APROBADO'])
-                tasa = round((aprobados_emp / count * 100), 1) if count > 0 else 0
-                postes_emp = int(emp_df['cantidad_postes'].sum()) if 'cantidad_postes' in emp_df.columns else 0
-                por_empresa.append({
-                    "empresa": emp,
-                    "cantidad": int(count),
-                    "aprobados": int(aprobados_emp),
-                    "tasa_aprobacion": tasa,
-                    "postes": postes_emp
-                })
+    por_inspector = [
+        {"inspector": r["inspector"], "cantidad": r["cantidad"], "aprobados": r["aprobados"],
+         "tasa_aprobacion": round(r["aprobados"] / r["cantidad"] * 100, 1) if r["cantidad"] > 0 else 0,
+         "postes": r["postes"]}
+        for r in insp_rows
+    ]
 
-    # Por Comuna
-    por_comuna = []
-    if 'comuna' in df.columns:
-        comunas = df[df['comuna'] != '']['comuna'].value_counts().head(15)
-        for com, count in comunas.items():
-            por_comuna.append({"comuna": com, "cantidad": int(count)})
+    por_resultado = {r["resultado"]: r["cantidad"] for r in res_rows}
 
-    # Por Inspector
-    por_inspector = []
-    if 'inspector' in df.columns:
-        df_insp = df[df['inspector'] != '']
-        inspector_counts = df_insp['inspector'].value_counts()
-        for inspector, count in inspector_counts.items():
-            if inspector and inspector.strip():
-                inspector_df = df_insp[df_insp['inspector'] == inspector]
-                aprobados_insp = len(inspector_df[inspector_df['resultado'] == 'APROBADO'])
-                tasa = round((aprobados_insp / count * 100), 1) if count > 0 else 0
-                postes_insp = int(inspector_df['cantidad_postes'].sum()) if 'cantidad_postes' in inspector_df.columns else 0
-                por_inspector.append({
-                    "inspector": inspector,
-                    "cantidad": int(count),
-                    "aprobados": int(aprobados_insp),
-                    "tasa_aprobacion": tasa,
-                    "postes": postes_insp
-                })
+    por_tiene_plano = [{"tipo": r["tipo"], "cantidad": r["cantidad"]} for r in plano_rows]
 
-    # Por Resultado
-    por_resultado = {}
-    if 'resultado' in df.columns:
-        resultados = df['resultado'].value_counts()
-        por_resultado = {str(k): int(v) for k, v in resultados.items() if k}
+    por_mes = [
+        {"mes": str(r["mes"]), "cantidad": r["cantidad"], "aprobados": r["aprobados"],
+         "tasa_aprobacion": round(r["aprobados"] / r["cantidad"] * 100, 1) if r["cantidad"] > 0 else 0}
+        for r in mes_rows
+    ]
 
-    # Por Tiene Plano
-    por_tiene_plano = []
-    if 'tiene_plano_norm' in df.columns:
-        planos = df['tiene_plano_norm'].value_counts()
-        for p, c in planos.items():
-            if p:
-                por_tiene_plano.append({"tipo": p, "cantidad": int(c)})
+    evolucion_mensual = [
+        {"periodo": r["periodo"], "casos": r["casos"], "postes": r["postes"], "aprobados": r["aprobados"]}
+        for r in evol_rows[-12:]
+    ]
 
-    # Por Mes
-    por_mes = []
-    if 'mes' in df.columns:
-        meses = df[df['mes'].notna()]['mes'].value_counts().sort_index()
-        for mes, count in meses.items():
-            mes_df = df[df['mes'] == mes]
-            aprobados_mes = len(mes_df[mes_df['resultado'] == 'APROBADO'])
-            tasa_mes = round((aprobados_mes / count * 100), 1) if count > 0 else 0
-            por_mes.append({
-                "mes": str(mes),
-                "cantidad": int(count),
-                "aprobados": int(aprobados_mes),
-                "tasa_aprobacion": tasa_mes
-            })
-
-    # Evolucion mensual (para grafico)
-    evolucion_mensual = []
-    if 'fecha_inspeccion' in df.columns:
-        df_with_date = df[df['fecha_inspeccion'].notna()].copy()
-        if not df_with_date.empty:
-            df_with_date['periodo'] = df_with_date['fecha_inspeccion'].dt.to_period('M')
-            monthly = df_with_date.groupby('periodo').agg({
-                'id': 'count',
-                'cantidad_postes': 'sum'
-            }).reset_index()
-            monthly.columns = ['periodo', 'casos', 'postes']
-
-            for idx, row in monthly.iterrows():
-                periodo_df = df_with_date[df_with_date['periodo'] == row['periodo']]
-                aprobados_periodo = len(periodo_df[periodo_df['resultado'] == 'APROBADO'])
-                monthly.at[idx, 'aprobados'] = int(aprobados_periodo)
-
-            monthly['periodo'] = monthly['periodo'].astype(str)
-            evolucion_mensual = monthly.tail(12).to_dict(orient='records')
-
-    # Comparativas (primera vs segunda mitad del periodo)
-    comparativas = {
-        "aprobacion": {"actual": 0, "anterior": 0, "diferencia": 0},
-    }
-
-    if 'fecha_inspeccion' in df.columns and len(df) > 10:
-        df_sorted = df[df['fecha_inspeccion'].notna()].sort_values('fecha_inspeccion')
-        if len(df_sorted) > 10:
-            mid = len(df_sorted) // 2
-            primera_mitad = df_sorted.iloc[:mid]
-            segunda_mitad = df_sorted.iloc[mid:]
-
-            # Tasa de aprobacion
-            if len(primera_mitad) > 0 and len(segunda_mitad) > 0:
-                aprobados_ant = len(primera_mitad[primera_mitad['resultado'] == 'APROBADO'])
-                aprobados_act = len(segunda_mitad[segunda_mitad['resultado'] == 'APROBADO'])
-                tasa_ant = (aprobados_ant / len(primera_mitad) * 100) if len(primera_mitad) > 0 else 0
-                tasa_act = (aprobados_act / len(segunda_mitad) * 100) if len(segunda_mitad) > 0 else 0
-                comparativas["aprobacion"] = {
-                    "actual": round(tasa_act, 1),
-                    "anterior": round(tasa_ant, 1),
-                    "diferencia": round(tasa_act - tasa_ant, 1)
-                }
-
-    # Motivos de Rechazo (extraer de observaciones)
-    motivos_rechazo = []
-    if 'observacion' in df.columns and 'resultado' in df.columns:
-        df_rechazados = df[df['resultado'] == 'RECHAZADO']
-
-        # Patrones de motivos de rechazo
-        motivos_patrones = {
-            'SATURACION ESPACIO AEREO': ['saturacion', 'saturado', 'espacio aereo'],
-            'VANOS FUERA DE NORMA': ['vanos fuera', 'vano fuera', 'distancia'],
-            'ESCOMBRO AEREO': ['escombro'],
-            'VEGETACION EN LINEAS': ['vegetacion', 'poda', 'arbol'],
-            'FALTA SOLUCION MECANICA': ['solucion mecanica', 'mecanica'],
-            'TRABAJOS YA REALIZADOS': ['ya realizados', 'realizados en terreno'],
-            'RESERVA TECNICA FUERA DE NORMA': ['reserva tecnica'],
-            'CRUCETAS EN MAL ESTADO': ['cruceta', 'mal estado'],
-            'SOBRECARGA DE APOYOS': ['apoyos', 'mas de 10', 'mas de 13'],
-            'SIN ESPECIFICAR': []
+    # Comparativas
+    comparativas = {"aprobacion": {"actual": 0, "anterior": 0, "diferencia": 0}}
+    if total > 10 and len(comp_rows) == 2:
+        ant = comp_rows[0]
+        act = comp_rows[1]
+        tasa_ant = round(ant["aprobados"] / ant["total"] * 100, 1) if ant["total"] > 0 else 0
+        tasa_act = round(act["aprobados"] / act["total"] * 100, 1) if act["total"] > 0 else 0
+        comparativas["aprobacion"] = {
+            "actual": tasa_act, "anterior": tasa_ant,
+            "diferencia": round(tasa_act - tasa_ant, 1),
         }
 
-        conteo_motivos = {k: 0 for k in motivos_patrones.keys()}
-
-        for obs in df_rechazados['observacion'].fillna('').str.lower():
-            encontrado = False
-            for motivo, patrones in motivos_patrones.items():
-                if motivo == 'SIN ESPECIFICAR':
-                    continue
-                for patron in patrones:
-                    if patron in obs:
-                        conteo_motivos[motivo] += 1
-                        encontrado = True
-                        break
-                if encontrado:
-                    break
-            if not encontrado and obs.strip():
-                conteo_motivos['SIN ESPECIFICAR'] += 1
-
-        # Ordenar y formatear
-        for motivo, cantidad in sorted(conteo_motivos.items(), key=lambda x: x[1], reverse=True):
-            if cantidad > 0:
+    # Motivos de rechazo
+    motivos_rechazo = []
+    if rechazados > 0 and motivos_row:
+        m = motivos_row[0]
+        motivos_mapping = [
+            ("SATURACION ESPACIO AEREO", m["saturacion"]),
+            ("VANOS FUERA DE NORMA", m["vanos_fuera"]),
+            ("ESCOMBRO AEREO", m["escombro"]),
+            ("VEGETACION EN LINEAS", m["vegetacion"]),
+            ("FALTA SOLUCION MECANICA", m["solucion_mecanica"]),
+            ("TRABAJOS YA REALIZADOS", m["ya_realizados"]),
+            ("RESERVA TECNICA FUERA DE NORMA", m["reserva_tecnica"]),
+            ("CRUCETAS EN MAL ESTADO", m["crucetas"]),
+            ("SOBRECARGA DE APOYOS", m["sobrecarga"]),
+        ]
+        for motivo, count in motivos_mapping:
+            if count and count > 0:
                 motivos_rechazo.append({
-                    "motivo": motivo,
-                    "cantidad": cantidad,
-                    "porcentaje": round((cantidad / rechazados * 100), 1) if rechazados > 0 else 0
+                    "motivo": motivo, "cantidad": count,
+                    "porcentaje": round(count / rechazados * 100, 1),
                 })
+        motivos_rechazo.sort(key=lambda x: x["cantidad"], reverse=True)
 
     # Insights
     insights = []
-
-    # Insight de tasa de aprobacion
     if tasa_aprobacion < META_APROBACION:
-        insights.append({
-            "tipo": "warning",
-            "titulo": "Tasa de aprobacion baja",
-            "mensaje": f"Solo {tasa_aprobacion}% de los casos fueron aprobados (meta: {META_APROBACION}%)"
-        })
+        insights.append({"tipo": "warning", "titulo": "Tasa de aprobacion baja",
+                         "mensaje": f"Solo {tasa_aprobacion}% de los casos fueron aprobados (meta: {META_APROBACION}%)"})
     elif tasa_aprobacion >= 60:
-        insights.append({
-            "tipo": "success",
-            "titulo": "Buena tasa de aprobacion",
-            "mensaje": f"{tasa_aprobacion}% de los casos fueron aprobados"
-        })
+        insights.append({"tipo": "success", "titulo": "Buena tasa de aprobacion",
+                         "mensaje": f"{tasa_aprobacion}% de los casos fueron aprobados"})
 
-    # Insight de rechazados
     if rechazados > aprobados:
-        insights.append({
-            "tipo": "warning",
-            "titulo": "Mas rechazos que aprobaciones",
-            "mensaje": f"{rechazados} rechazados vs {aprobados} aprobados"
-        })
+        insights.append({"tipo": "warning", "titulo": "Mas rechazos que aprobaciones",
+                         "mensaje": f"{rechazados} rechazados vs {aprobados} aprobados"})
 
-    # Insight de planos
-    if sin_plano + plano_incompleto > con_plano * 0.2:
-        insights.append({
-            "tipo": "info",
-            "titulo": "Casos sin plano completo",
-            "mensaje": f"{sin_plano + plano_incompleto} casos sin plano o con plano incompleto"
-        })
+    sin_plano = k["sin_plano"]
+    plano_inc = k["plano_incompleto"]
+    con_plano = k["con_plano"]
+    if sin_plano + plano_inc > con_plano * 0.2:
+        insights.append({"tipo": "info", "titulo": "Casos sin plano completo",
+                         "mensaje": f"{sin_plano + plano_inc} casos sin plano o con plano incompleto"})
 
-    # Insight de empresa principal
     if por_empresa:
-        top_empresa = por_empresa[0]
-        insights.append({
-            "tipo": "info",
-            "titulo": f"Principal cliente: {top_empresa['empresa']}",
-            "mensaje": f"{top_empresa['cantidad']} casos ({top_empresa['postes']} postes)"
-        })
+        top = por_empresa[0]
+        insights.append({"tipo": "info", "titulo": f"Principal cliente: {top['empresa']}",
+                         "mensaje": f"{top['cantidad']} casos ({top['postes']} postes)"})
 
-    # Insight de postes
+    total_postes = k["total_postes"]
     if total_postes > 0:
-        insights.append({
-            "tipo": "info",
-            "titulo": f"Total postes evaluados: {total_postes:,}",
-            "mensaje": f"Promedio de {promedio_postes} postes por caso"
-        })
+        insights.append({"tipo": "info", "titulo": f"Total postes evaluados: {total_postes:,}",
+                         "mensaje": f"Promedio de {promedio_postes} postes por caso"})
 
     return {
-        "total": total,
-        "aprobados": aprobados,
-        "rechazados": rechazados,
+        "total": total, "aprobados": aprobados, "rechazados": rechazados,
         "tasa_aprobacion": tasa_aprobacion,
-        "total_postes": total_postes,
-        "promedio_postes": promedio_postes,
-        "con_plano": con_plano,
-        "sin_plano": sin_plano,
-        "plano_incompleto": plano_incompleto,
-        "por_empresa": por_empresa,
-        "por_comuna": por_comuna,
-        "por_inspector": por_inspector,
-        "por_resultado": por_resultado,
-        "por_mes": por_mes,
-        "por_tiene_plano": por_tiene_plano,
-        "motivos_rechazo": motivos_rechazo,
-        "evolucion_mensual": evolucion_mensual,
-        "comparativas": comparativas,
-        "insights": insights,
+        "total_postes": total_postes, "promedio_postes": promedio_postes,
+        "con_plano": con_plano, "sin_plano": sin_plano, "plano_incompleto": plano_inc,
+        "por_empresa": por_empresa, "por_comuna": por_comuna, "por_inspector": por_inspector,
+        "por_resultado": por_resultado, "por_mes": por_mes, "por_tiene_plano": por_tiene_plano,
+        "motivos_rechazo": motivos_rechazo, "evolucion_mensual": evolucion_mensual,
+        "comparativas": comparativas, "insights": insights,
     }
 
 
-def get_teleco_empresas() -> List[str]:
-    """Get list of unique empresas."""
-    df = load_teleco_data()
-    if 'empresa_corta' in df.columns:
-        return sorted([e for e in df['empresa_corta'].dropna().unique().tolist() if e and e.strip()])
-    return []
+@cached(ttl_seconds=300)
+async def get_teleco_empresas() -> List[str]:
+    rows = await execute_query("SELECT DISTINCT empresa_corta FROM telecomunicaciones WHERE TRIM(COALESCE(empresa_corta,'')) != '' ORDER BY empresa_corta")
+    return [r["empresa_corta"] for r in rows]
 
 
-def get_teleco_comunas() -> List[str]:
-    """Get list of unique comunas."""
-    df = load_teleco_data()
-    if 'comuna' in df.columns:
-        return sorted([c for c in df['comuna'].dropna().unique().tolist() if c and c.strip()])
-    return []
+@cached(ttl_seconds=300)
+async def get_teleco_comunas() -> List[str]:
+    rows = await execute_query("SELECT DISTINCT comuna FROM telecomunicaciones WHERE TRIM(COALESCE(comuna,'')) != '' ORDER BY comuna")
+    return [r["comuna"] for r in rows]
 
 
-def get_teleco_inspectors() -> List[Dict[str, Any]]:
-    """Get list of inspectors with their stats."""
-    df = load_teleco_data()
-    if 'inspector' not in df.columns:
-        return []
-
-    inspectors = []
-    df_insp = df[df['inspector'] != '']
-    inspector_counts = df_insp['inspector'].value_counts()
-
-    for inspector, count in inspector_counts.items():
-        if inspector and inspector.strip():
-            inspector_df = df_insp[df_insp['inspector'] == inspector]
-            aprobados = len(inspector_df[inspector_df['resultado'] == 'APROBADO'])
-            tasa = round((aprobados / count * 100), 1) if count > 0 else 0
-            postes = int(inspector_df['cantidad_postes'].sum()) if 'cantidad_postes' in inspector_df.columns else 0
-            inspectors.append({
-                "inspector": inspector,
-                "cantidad": int(count),
-                "aprobados": int(aprobados),
-                "tasa_aprobacion": tasa,
-                "postes": postes
-            })
-
-    return inspectors
+@cached(ttl_seconds=300)
+async def get_teleco_inspectors() -> List[Dict[str, Any]]:
+    rows = await execute_query("""
+        SELECT inspector, COUNT(*) as cantidad,
+            COUNT(*) FILTER (WHERE UPPER(resultado) = 'APROBADO') as aprobados,
+            COALESCE(SUM(cantidad_postes), 0) as postes
+        FROM telecomunicaciones WHERE TRIM(COALESCE(inspector,'')) != ''
+        GROUP BY inspector ORDER BY cantidad DESC
+    """)
+    return [
+        {"inspector": r["inspector"], "cantidad": r["cantidad"], "aprobados": r["aprobados"],
+         "tasa_aprobacion": round(r["aprobados"] / r["cantidad"] * 100, 1) if r["cantidad"] > 0 else 0,
+         "postes": r["postes"]}
+        for r in rows
+    ]
 
 
-def get_teleco_periodos() -> Dict[str, List[int]]:
-    """Get available months and years."""
-    df = load_teleco_data()
-    result = {"meses": [], "anios": []}
-
-    if 'mes' in df.columns:
-        meses = df['mes'].dropna().unique().tolist()
-        result["meses"] = sorted([int(m) for m in meses if m and not pd.isna(m)])
-
-    if 'anio' in df.columns:
-        anios = df['anio'].dropna().unique().tolist()
-        result["anios"] = sorted([int(a) for a in anios if a and not pd.isna(a)])
-
-    return result
+@cached(ttl_seconds=300)
+async def get_teleco_periodos() -> Dict[str, Any]:
+    rows = await execute_query("""
+        SELECT
+            ARRAY_AGG(DISTINCT mes ORDER BY mes) FILTER (WHERE mes IS NOT NULL) as meses,
+            ARRAY_AGG(DISTINCT anio ORDER BY anio) FILTER (WHERE anio IS NOT NULL) as anios,
+            (SELECT mes FROM telecomunicaciones WHERE mes IS NOT NULL AND anio IS NOT NULL ORDER BY anio DESC, mes DESC LIMIT 1) as ultimo_mes,
+            (SELECT anio FROM telecomunicaciones WHERE mes IS NOT NULL AND anio IS NOT NULL ORDER BY anio DESC, mes DESC LIMIT 1) as ultimo_anio
+        FROM telecomunicaciones
+    """)
+    if rows:
+        return {
+            "meses": rows[0]["meses"] or [],
+            "anios": rows[0]["anios"] or [],
+            "ultimo_mes": rows[0]["ultimo_mes"],
+            "ultimo_anio": rows[0]["ultimo_anio"],
+        }
+    return {"meses": [], "anios": [], "ultimo_mes": None, "ultimo_anio": None}

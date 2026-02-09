@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 DATA_DIR = Path(__file__).parent.parent / "data"
-EXCEL_FILE = DATA_DIR / "CONTROL OPERACIONES TELCO.xlsx"
+EXCEL_FILE = DATA_DIR / "ENEL Calidad" / "6. Telecomunicaciones" / "CONTROL OPERACIONES TELCO.xlsx"
 OUTPUT_CSV = DATA_DIR / "informe_teleco.csv"
 
 def excel_to_csv():

@@ -43,6 +43,8 @@ CSV_FILES_CONFIG = {
     "informe_teleco.csv": {"encoding": "utf-8-sig"},
     # NNCC
     "2025-05 INFORME NNCC (2024-2029) DIC 2025.csv": {"encoding": "utf-8"},
+    # Medidores Cruzados
+    "informe_medidores_cruzados.csv": {"encoding": "utf-8-sig"},
 }
 
 

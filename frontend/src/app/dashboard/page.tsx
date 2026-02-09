@@ -28,6 +28,7 @@ import {
   Radio,
   Scissors,
   AlertTriangle,
+  GitCompare,
 } from 'lucide-react'
 import { formatNumber } from '@/lib/utils'
 import { api } from '@/lib/api'
@@ -109,6 +110,16 @@ interface DashboardSummary {
     ultima_actualizacion: string | null
     activo: boolean
   }
+  medidores_cruzados: {
+    total: number
+    por_zona: Record<string, number>
+    por_resultado: Record<string, number>
+    por_estado_medidor: Record<string, number>
+    por_inspector: Array<{ inspector: string; cantidad: number; tasa_bien_ejecutado: number }>
+    evolucion_mensual: Array<{ mes: string; total: number; bien_ejecutados: number }>
+    ultima_actualizacion: string | null
+    activo: boolean
+  }
   resumen_general: {
     total_registros: number
     modulos_activos: number
@@ -182,36 +193,8 @@ export default function DashboardPage() {
       />
 
       <div className="p-6">
-        {/* Resumen General */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Total Registros</p>
-            <p className="text-3xl font-semibold text-gray-900 mt-1">{formatNumber(data?.resumen_general.total_registros || 0)}</p>
-            <p className="text-xs text-gray-400 mt-1">En todos los modulos</p>
-          </div>
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Modulos Activos</p>
-            <p className="text-3xl font-semibold text-emerald-600 mt-1">{data?.resumen_general.modulos_activos || 0}</p>
-            <p className="text-xs text-gray-400 mt-1">de 4 modulos</p>
-          </div>
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">NNCC Efectividad</p>
-            <p className={`text-3xl font-semibold mt-1 ${data && data.nncc.tasa_efectividad >= META_EFECTIVIDAD ? 'text-emerald-600' : 'text-amber-600'}`}>
-              {data?.nncc.tasa_efectividad || 0}%
-            </p>
-            <p className="text-xs text-gray-400 mt-1">Meta: {META_EFECTIVIDAD}%</p>
-          </div>
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Lecturas En Plazo</p>
-            <p className={`text-3xl font-semibold mt-1 ${data && data.lecturas.tasa_cumplimiento_plazo >= META_CUMPLIMIENTO ? 'text-emerald-600' : 'text-amber-600'}`}>
-              {data?.lecturas.tasa_cumplimiento_plazo || 0}%
-            </p>
-            <p className="text-xs text-gray-400 mt-1">Meta: {META_CUMPLIMIENTO}%</p>
-          </div>
-        </div>
-
         {/* Tarjetas de Modulos */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
           {/* NNCC Card */}
           <Card
             className="cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02]"
@@ -254,6 +237,43 @@ export default function DashboardPage() {
                 <Calendar size={12} className="text-gray-400 mr-1" />
                 <span className="text-[10px] text-gray-400">{data.nncc.ultima_actualizacion}</span>
               </Flex>
+            )}
+          </Card>
+
+          {/* Medidores Cruzados Card */}
+          <Card
+            className={data?.medidores_cruzados?.activo ? "cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02]" : "opacity-60"}
+            onClick={() => data?.medidores_cruzados?.activo && router.push('/dashboard/nuevas-conexiones/medidores-cruzados')}
+          >
+            <div>
+              <Text className="text-gray-500">Med. Cruzados</Text>
+              <p className="text-2xl font-bold text-gray-900 mt-1">
+                {data?.medidores_cruzados?.activo ? formatNumber(data?.medidores_cruzados.total || 0) : '-'}
+              </p>
+            </div>
+            {data?.medidores_cruzados?.activo ? (
+              <>
+                <div className="mt-4 space-y-2">
+                  <Flex justifyContent="between">
+                    <span className="text-xs text-gray-500">Bien Ejec.</span>
+                    <span className="text-xs font-medium text-emerald-600">{formatNumber(data?.medidores_cruzados.por_resultado?.['TRABAJO BIEN EJECUTADO'] || 0)}</span>
+                  </Flex>
+                  <Flex justifyContent="between">
+                    <span className="text-xs text-gray-500">Mal Ejec.</span>
+                    <span className="text-xs font-medium text-red-600">{formatNumber(data?.medidores_cruzados.por_resultado?.['TRABAJO MAL EJECUTADO'] || 0)}</span>
+                  </Flex>
+                </div>
+                {data?.medidores_cruzados.ultima_actualizacion && (
+                  <Flex className="mt-2" alignItems="center" justifyContent="end">
+                    <Calendar size={12} className="text-gray-400 mr-1" />
+                    <span className="text-[10px] text-gray-400">{data.medidores_cruzados.ultima_actualizacion}</span>
+                  </Flex>
+                )}
+              </>
+            ) : (
+              <div className="mt-4">
+                <Text className="text-gray-400 text-sm">Sin datos</Text>
+              </div>
             )}
           </Card>
 

@@ -31,7 +31,7 @@ async def get_inspecciones(
     current_user: User = Depends(get_current_user),
 ):
     """Get paginated list of NNCC inspections with filters."""
-    return data_service.get_filtered_data(
+    return await data_service.get_filtered_data(
         search=search,
         zona=zona,
         inspector=inspector,
@@ -60,7 +60,7 @@ async def get_stats(
     current_user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Get aggregated statistics for NNCC inspections with optional filters."""
-    return data_service.get_stats(
+    return await data_service.get_stats(
         zona=zona,
         base=base,
         fecha_desde=fecha_desde,
@@ -75,7 +75,7 @@ async def get_comunas(
     current_user: User = Depends(get_current_user),
 ):
     """Get list of unique comunas."""
-    return data_service.get_comunas()
+    return await data_service.get_comunas()
 
 
 @router.get("/zonas", response_model=List[str])
@@ -83,7 +83,7 @@ async def get_zonas(
     current_user: User = Depends(get_current_user),
 ):
     """Get list of unique zonas."""
-    return data_service.get_zonas()
+    return await data_service.get_zonas()
 
 
 @router.get("/inspectors", response_model=List[Dict[str, Any]])
@@ -91,7 +91,7 @@ async def get_inspectors(
     current_user: User = Depends(get_current_user),
 ):
     """Get list of inspectors with their stats."""
-    return data_service.get_inspectors()
+    return await data_service.get_inspectors()
 
 
 @router.get("/bases", response_model=List[str])
@@ -99,15 +99,15 @@ async def get_bases(
     current_user: User = Depends(get_current_user),
 ):
     """Get list of unique bases."""
-    return data_service.get_bases()
+    return await data_service.get_bases()
 
 
 @router.get("/periodos")
 async def get_periodos(
     current_user: User = Depends(get_current_user),
-) -> Dict[str, List[int]]:
+) -> Dict[str, Any]:
     """Get available months and years."""
-    return data_service.get_periodos()
+    return await data_service.get_periodos()
 
 
 @router.get("/export")
@@ -125,8 +125,7 @@ async def export_data(
     current_user: User = Depends(get_current_user),
 ):
     """Export filtered data to CSV or Excel."""
-    # Get all filtered data (no pagination for export)
-    result = data_service.get_filtered_data(
+    result = await data_service.get_filtered_data(
         search=search,
         zona=zona,
         inspector=inspector,
@@ -137,7 +136,7 @@ async def export_data(
         mes=mes,
         anio=anio,
         page=1,
-        limit=100000,  # Large limit for export
+        limit=100000,
     )
 
     df = pd.DataFrame(result["items"])
@@ -171,47 +170,4 @@ async def export_data(
             headers={
                 "Content-Disposition": "attachment; filename=informe_nncc.csv"
             }
-        )
-
-
-@router.post("/upload")
-async def upload_file(
-    file: UploadFile = File(...),
-    current_user: User = Depends(require_editor),
-):
-    """Upload Excel/CSV file to update data (editor or admin only)."""
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No se proporciono archivo")
-
-    allowed_extensions = ['.csv', '.xlsx', '.xls']
-    file_ext = '.' + file.filename.split('.')[-1].lower()
-
-    if file_ext not in allowed_extensions:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Formato no soportado. Use: {', '.join(allowed_extensions)}"
-        )
-
-    try:
-        contents = await file.read()
-
-        if file_ext == '.csv':
-            df = pd.read_csv(io.BytesIO(contents))
-        else:
-            df = pd.read_excel(io.BytesIO(contents))
-
-        # Reload data cache
-        data_service.load_data(force_reload=True)
-
-        return {
-            "message": "Archivo procesado exitosamente",
-            "filename": file.filename,
-            "rows": len(df),
-            "columns": len(df.columns)
-        }
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error al procesar archivo: {str(e)}"
         )

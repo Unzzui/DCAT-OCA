@@ -35,7 +35,7 @@ async def get_lecturas(
     current_user: User = Depends(get_current_user),
 ):
     """Get paginated list of Lecturas with filters."""
-    return lecturas_service.get_lecturas_filtered_data(
+    return await lecturas_service.get_lecturas_filtered_data(
         search=search,
         sector=sector,
         inspector=inspector,
@@ -65,7 +65,7 @@ async def get_stats(
     current_user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Get aggregated statistics for Lecturas."""
-    return lecturas_service.get_lecturas_stats(
+    return await lecturas_service.get_lecturas_stats(
         sector=sector,
         origen=origen,
         fecha_desde=fecha_desde,
@@ -80,7 +80,7 @@ async def get_sectores(
     current_user: User = Depends(get_current_user),
 ):
     """Get list of unique sectores."""
-    return lecturas_service.get_lecturas_sectores()
+    return await lecturas_service.get_lecturas_sectores()
 
 
 @router.get("/inspectors", response_model=List[Dict[str, Any]])
@@ -88,7 +88,7 @@ async def get_inspectors(
     current_user: User = Depends(get_current_user),
 ):
     """Get list of inspectors with their stats."""
-    return lecturas_service.get_lecturas_inspectors()
+    return await lecturas_service.get_lecturas_inspectors()
 
 
 @router.get("/hallazgos", response_model=List[str])
@@ -96,7 +96,7 @@ async def get_hallazgos(
     current_user: User = Depends(get_current_user),
 ):
     """Get list of unique hallazgos."""
-    return lecturas_service.get_lecturas_hallazgos()
+    return await lecturas_service.get_lecturas_hallazgos()
 
 
 @router.get("/comunas", response_model=List[str])
@@ -104,15 +104,15 @@ async def get_comunas(
     current_user: User = Depends(get_current_user),
 ):
     """Get list of unique comunas."""
-    return lecturas_service.get_lecturas_comunas()
+    return await lecturas_service.get_lecturas_comunas()
 
 
 @router.get("/periodos")
 async def get_periodos(
     current_user: User = Depends(get_current_user),
-) -> Dict[str, List[int]]:
+) -> Dict[str, Any]:
     """Get available months and years."""
-    return lecturas_service.get_lecturas_periodos()
+    return await lecturas_service.get_lecturas_periodos()
 
 
 @router.get("/export")
@@ -130,7 +130,7 @@ async def export_data(
     current_user: User = Depends(get_current_user),
 ):
     """Export filtered data to CSV or Excel."""
-    result = lecturas_service.get_lecturas_filtered_data(
+    result = await lecturas_service.get_lecturas_filtered_data(
         search=search,
         sector=sector,
         inspector=inspector,

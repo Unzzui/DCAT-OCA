@@ -201,3 +201,20 @@ def get_column_config_corte() -> Dict[str, Dict[str, Any]]:
         "fecha": {"width": 14},
         "observaciones": {"width": 40},
     }
+
+
+def get_column_config_medidores_cruzados() -> Dict[str, Dict[str, Any]]:
+    """Configuración de columnas para informe de Medidores Cruzados."""
+    return {
+        "mes": {"width": 12},
+        "fecha_inspeccion": {"width": 14},
+        "num_cliente": {"width": 15},
+        "direccion": {"width": 35},
+        "comuna": {"width": 15},
+        "zona": {"width": 12},
+        "inspector": {"width": 20},
+        "estado_medidor": {"width": 25},
+        "resultado_inspeccion": {"width": 25},
+        "eepp_oca": {"width": 18},
+        "observacion_inspector": {"width": 40},
+    }

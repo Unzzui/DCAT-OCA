@@ -34,7 +34,7 @@ async def get_teleco(
     current_user: User = Depends(get_current_user),
 ):
     """Get paginated list of Telecomunicaciones with filters."""
-    return teleco_service.get_teleco_filtered_data(
+    return await teleco_service.get_teleco_filtered_data(
         search=search,
         empresa=empresa,
         comuna=comuna,
@@ -63,7 +63,7 @@ async def get_stats(
     current_user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Get aggregated statistics for Telecomunicaciones."""
-    return teleco_service.get_teleco_stats(
+    return await teleco_service.get_teleco_stats(
         empresa=empresa,
         comuna=comuna,
         fecha_desde=fecha_desde,
@@ -78,7 +78,7 @@ async def get_empresas(
     current_user: User = Depends(get_current_user),
 ):
     """Get list of unique empresas."""
-    return teleco_service.get_teleco_empresas()
+    return await teleco_service.get_teleco_empresas()
 
 
 @router.get("/comunas", response_model=List[str])
@@ -86,7 +86,7 @@ async def get_comunas(
     current_user: User = Depends(get_current_user),
 ):
     """Get list of unique comunas."""
-    return teleco_service.get_teleco_comunas()
+    return await teleco_service.get_teleco_comunas()
 
 
 @router.get("/inspectors", response_model=List[Dict[str, Any]])
@@ -94,15 +94,15 @@ async def get_inspectors(
     current_user: User = Depends(get_current_user),
 ):
     """Get list of inspectors with their stats."""
-    return teleco_service.get_teleco_inspectors()
+    return await teleco_service.get_teleco_inspectors()
 
 
 @router.get("/periodos")
 async def get_periodos(
     current_user: User = Depends(get_current_user),
-) -> Dict[str, List[int]]:
+) -> Dict[str, Any]:
     """Get available months and years."""
-    return teleco_service.get_teleco_periodos()
+    return await teleco_service.get_teleco_periodos()
 
 
 @router.get("/export")
@@ -120,7 +120,7 @@ async def export_data(
     current_user: User = Depends(get_current_user),
 ):
     """Export filtered data to CSV or Excel."""
-    result = teleco_service.get_teleco_filtered_data(
+    result = await teleco_service.get_teleco_filtered_data(
         search=search,
         empresa=empresa,
         comuna=comuna,

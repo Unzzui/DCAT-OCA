@@ -1,84 +1,57 @@
 """
 API endpoints para el Dashboard principal.
 Proporciona un resumen de todos los modulos.
+Todo se lee desde Supabase (PostgreSQL), sin dependencia de archivos CSV.
 """
 
 from fastapi import APIRouter, Depends
 from typing import Dict, Any
-import os
-from datetime import datetime
+import asyncio
 from ...schemas.user import User
-from ...services import data_service, lecturas_service, teleco_service, calidad_service, corte_service
+from ...services import data_service, lecturas_service, teleco_service, calidad_service, corte_service, medidores_cruzados_service
+from ...services.db_queries import execute_scalar
+from ...services.cache import cached
 from ..deps import get_current_user
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
-def get_file_update_time(filepath: str) -> str:
-    """Get the last modification time of a file."""
+@cached(ttl_seconds=300)
+async def _get_last_update(table: str, date_col: str = "fecha_inspeccion") -> str:
+    """Get the most recent date from a table as ultima_actualizacion."""
     try:
-        if os.path.exists(filepath):
-            mtime = os.path.getmtime(filepath)
-            return datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M')
-    except:
+        result = await execute_scalar(
+            f"SELECT MAX({date_col})::text FROM {table}"
+        )
+        if result:
+            return result[:16]  # YYYY-MM-DD HH:MM
+    except Exception:
         pass
     return None
 
 
-@router.get("/summary")
-async def get_dashboard_summary(
-    current_user: User = Depends(get_current_user),
-) -> Dict[str, Any]:
-    """Get summary statistics for all modules."""
-
-    base_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-        "data"
+@cached(ttl_seconds=60)
+async def _compute_dashboard_summary() -> Dict[str, Any]:
+    """Internal cached function that does all the heavy work."""
+    # Run all stats queries + update timestamps in parallel
+    (
+        nncc_stats, lecturas_stats, teleco_stats, calidad_stats, corte_stats, mc_stats,
+        nncc_updated, lecturas_updated, teleco_updated, calidad_updated, corte_updated, mc_updated,
+    ) = await asyncio.gather(
+        data_service.get_stats(),
+        lecturas_service.get_lecturas_stats(),
+        teleco_service.get_teleco_stats(),
+        calidad_service.get_calidad_stats(),
+        corte_service.get_corte_stats(),
+        medidores_cruzados_service.get_stats(),
+        _get_last_update("nncc"),
+        _get_last_update("lecturas", "fecha_ingreso"),
+        _get_last_update("telecomunicaciones"),
+        _get_last_update("calidad_mono_base"),
+        _get_last_update("corte_reposicion"),
+        _get_last_update("medidores_cruzados"),
     )
 
-    # === NNCC Stats ===
-    nncc_stats = data_service.get_stats()
-    nncc_csv_path = os.path.join(base_path, "2025-05 INFORME NNCC (2024-2029) DIC 2025.csv")
-    nncc_updated = get_file_update_time(nncc_csv_path)
-
-    # === Lecturas Stats ===
-    lecturas_stats = lecturas_service.get_lecturas_stats()
-    lecturas_files = [
-        os.path.join(base_path, "informe_lectura_ORDENES_ORDENES.csv"),
-        os.path.join(base_path, "informe_lectura_SEC_SEC.csv"),
-        os.path.join(base_path, "informe_lectura_VIRTUAL_VIRTUAL VISIT.csv"),
-        os.path.join(base_path, "informe_lectura_VIRTUAL_VISITA VIRTUAL.csv"),
-    ]
-    # Get most recent update time
-    lecturas_updated = None
-    for f in lecturas_files:
-        t = get_file_update_time(f)
-        if t and (lecturas_updated is None or t > lecturas_updated):
-            lecturas_updated = t
-
-    # === Teleco Stats ===
-    teleco_stats = teleco_service.get_teleco_stats()
-    teleco_csv_path = os.path.join(base_path, "informe_teleco.csv")
-    teleco_updated = get_file_update_time(teleco_csv_path)
-
-    # === Control de Perdidas Stats ===
-    calidad_stats = calidad_service.get_calidad_stats()
-    calidad_files = [
-        os.path.join(base_path, "informe_calidad_mono_BASE.csv"),
-        os.path.join(base_path, "informe_calidad_tri_BASE.csv"),
-    ]
-    calidad_updated = None
-    for f in calidad_files:
-        t = get_file_update_time(f)
-        if t and (calidad_updated is None or t > calidad_updated):
-            calidad_updated = t
-
-    # === Corte y Reposicion Stats ===
-    corte_stats = corte_service.get_corte_stats()
-    corte_csv_path = os.path.join(base_path, "informe_corte.csv")
-    corte_updated = get_file_update_time(corte_csv_path)
-
-    # === Build Response ===
     return {
         "nncc": {
             "total": nncc_stats.get("total", 0),
@@ -149,13 +122,24 @@ async def get_dashboard_summary(
             "ultima_actualizacion": calidad_updated,
             "activo": calidad_stats.get("total_ejecutadas", 0) > 0,
         },
+        "medidores_cruzados": {
+            "total": mc_stats.get("total", 0),
+            "por_zona": mc_stats.get("por_zona", {}),
+            "por_resultado": mc_stats.get("por_resultado", {}),
+            "por_estado_medidor": mc_stats.get("por_estado_medidor", {}),
+            "por_inspector": mc_stats.get("por_inspector", [])[:5],
+            "evolucion_mensual": mc_stats.get("evolucion_mensual", []),
+            "ultima_actualizacion": mc_updated,
+            "activo": mc_stats.get("total", 0) > 0,
+        },
         "resumen_general": {
             "total_registros": (
                 nncc_stats.get("total", 0) +
                 lecturas_stats.get("total", 0) +
                 teleco_stats.get("total", 0) +
                 calidad_stats.get("total_ejecutadas", 0) +
-                corte_stats.get("total", 0)
+                corte_stats.get("total", 0) +
+                mc_stats.get("total", 0)
             ),
             "modulos_activos": sum([
                 1,  # NNCC siempre activo
@@ -163,10 +147,20 @@ async def get_dashboard_summary(
                 1,  # Teleco siempre activo
                 1 if calidad_stats.get("total_ejecutadas", 0) > 0 else 0,
                 1 if corte_stats.get("total", 0) > 0 else 0,
+                1 if mc_stats.get("total", 0) > 0 else 0,
             ]),
             "modulos_pendientes": sum([
                 0 if calidad_stats.get("total_ejecutadas", 0) > 0 else 1,
                 0 if corte_stats.get("total", 0) > 0 else 1,
+                0 if mc_stats.get("total", 0) > 0 else 1,
             ]),
         }
     }
+
+
+@router.get("/summary")
+async def get_dashboard_summary(
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Get summary statistics for all modules."""
+    return await _compute_dashboard_summary()

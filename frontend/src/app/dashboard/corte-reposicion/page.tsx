@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Header } from '@/components/layout/Header'
 import {
   Card,
@@ -106,6 +106,8 @@ interface PaginatedResponse {
 interface Periodos {
   meses: number[]
   anios: number[]
+  ultimo_mes: number | null
+  ultimo_anio: number | null
 }
 
 interface EvolucionItem {
@@ -142,9 +144,10 @@ export default function CorteReposicionPage() {
   const [centros, setCentros] = useState<string[]>([])
   const [comunas, setComunas] = useState<string[]>([])
   const [situaciones, setSituaciones] = useState<string[]>([])
-  const [periodos, setPeriodos] = useState<Periodos>({ meses: [], anios: [] })
+  const [periodos, setPeriodos] = useState<Periodos>({ meses: [], anios: [], ultimo_mes: null, ultimo_anio: null })
   const [evolucion, setEvolucion] = useState<EvolucionItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportFormat, setExportFormat] = useState<'excel' | 'csv'>('excel')
 
@@ -217,23 +220,68 @@ export default function CorteReposicionPage() {
     }
   }, [globalZona, globalCentro])
 
+  const initialLoadDone = useRef(false)
+  const skipNextRefresh = useRef(false)
+
   useEffect(() => {
-    const loadInitialData = async () => {
+    const loadAll = async () => {
       setLoading(true)
-      await fetchFilters()
+      const [zonasRes, centrosRes, comunasRes, situacionesRes, periodosRes] = await Promise.all([
+        api.get<string[]>('/api/v1/corte/zonas'),
+        api.get<string[]>('/api/v1/corte/centros-operativos'),
+        api.get<string[]>('/api/v1/corte/comunas'),
+        api.get<string[]>('/api/v1/corte/situaciones'),
+        api.get<Periodos>('/api/v1/corte/periodos'),
+      ])
+      setZonas(zonasRes)
+      setCentros(centrosRes)
+      setComunas(comunasRes)
+      setSituaciones(situacionesRes)
+      setPeriodos(periodosRes)
+
+      const initMes = periodosRes.ultimo_mes ? String(periodosRes.ultimo_mes) : ''
+      const initAnio = periodosRes.ultimo_anio ? String(periodosRes.ultimo_anio) : ''
+
+      const statsParams = new URLSearchParams()
+      if (initMes) statsParams.append('mes', initMes)
+      if (initAnio) statsParams.append('anio', initAnio)
+
+      const dataParams = new URLSearchParams()
+      dataParams.append('page', '1')
+      dataParams.append('limit', '10')
+      if (initMes) dataParams.append('mes', initMes)
+      if (initAnio) dataParams.append('anio', initAnio)
+
+      const [statsRes, dataRes, evolucionRes] = await Promise.all([
+        api.get<Stats>(`/api/v1/corte/stats${statsParams.toString() ? '?' + statsParams.toString() : ''}`),
+        api.get<PaginatedResponse>(`/api/v1/corte?${dataParams.toString()}`),
+        api.get<EvolucionItem[]>('/api/v1/corte/evolucion'),
+      ])
+      setStats(statsRes)
+      setData(dataRes)
+      setEvolucion(evolucionRes)
+
+      skipNextRefresh.current = true
+      setGlobalMes(initMes)
+      setGlobalAnio(initAnio)
+
       setLoading(false)
+      initialLoadDone.current = true
     }
-    loadInitialData()
-  }, [fetchFilters])
+    loadAll()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
-    fetchStats()
-    fetchEvolucion()
-  }, [fetchStats, fetchEvolucion])
-
-  useEffect(() => {
-    fetchData()
-  }, [fetchData])
+    if (!initialLoadDone.current) return
+    if (skipNextRefresh.current) { skipNextRefresh.current = false; return }
+    const doRefresh = async () => {
+      setRefreshing(true)
+      await Promise.all([fetchStats(), fetchData(), fetchEvolucion()])
+      setRefreshing(false)
+    }
+    doRefresh()
+  }, [fetchStats, fetchData, fetchEvolucion])
 
   const getMotivoMultaBadge = (motivo: string) => {
     if (!motivo) return <span className="text-gray-400">-</span>
@@ -371,12 +419,18 @@ export default function CorteReposicionPage() {
         recordCount={hasActiveFilters ? data?.total : stats?.total}
         hasFilters={hasActiveFilters}
       />
+      {refreshing && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-white rounded-full shadow-lg px-4 py-2 flex items-center gap-2 border">
+          <div className="animate-spin rounded-full h-4 w-4 border-2 border-oca-blue border-t-transparent"></div>
+          <span className="text-sm text-gray-600">Actualizando datos...</span>
+        </div>
+      )}
       <Header
         title="Corte y Reposicion"
         subtitle="Inspeccion de Calidad - Cortes y Reposiciones"
       />
 
-      <div className="p-6">
+      <div className={`p-6 transition-opacity duration-200 ${refreshing ? 'opacity-60 pointer-events-none' : ''}`}>
         {/* Global Filters Bar */}
         <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
           <Flex justifyContent="between" alignItems="center" className="flex-wrap gap-4">

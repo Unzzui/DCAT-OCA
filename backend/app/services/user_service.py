@@ -1,66 +1,184 @@
 from typing import Optional, List
 from datetime import datetime
-from ..schemas.user import User, UserCreate, UserInDB, LoginRequest
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, update, delete
+from sqlalchemy.exc import IntegrityError
+
+from ..schemas.user import User, UserCreate, UserInDB, UserUpdate
 from ..core.security import get_password_hash, verify_password
+from ..db.models import UserModel
+from ..core.config import settings
 
-# In-memory user storage (replace with database in production)
-USERS_DB: dict[str, UserInDB] = {}
 
-# Create default admin user
-def init_default_users():
-    if "admin@ocaglobal.com" not in USERS_DB:
-        admin = UserInDB(
-            id=1,
-            email="admin@ocaglobal.com",
-            full_name="Administrador",
-            role="admin",
-            is_active=True,
-            created_at=datetime.utcnow(),
-            hashed_password=get_password_hash("admin123"),
+# ============================================================
+# In-memory fallback (used when DATABASE_URL is not configured)
+# ============================================================
+_USERS_DB: dict[str, UserInDB] = {}
+_use_db = bool(settings.DATABASE_URL)
+
+
+def _init_default_users_memory():
+    """Initialize in-memory users for development without DB."""
+    if "admin@ocaglobal.com" not in _USERS_DB:
+        _USERS_DB["admin@ocaglobal.com"] = UserInDB(
+            id=1, email="admin@ocaglobal.com", full_name="Administrador",
+            role="admin", is_active=True, created_at=datetime.utcnow(),
+            hashed_password=get_password_hash("Admin123"),
         )
-        USERS_DB[admin.email] = admin
-
-    if "editor@ocaglobal.com" not in USERS_DB:
-        editor = UserInDB(
-            id=2,
-            email="editor@ocaglobal.com",
-            full_name="Editor",
-            role="editor",
-            is_active=True,
-            created_at=datetime.utcnow(),
-            hashed_password=get_password_hash("editor123"),
+    if "diego.bravob@ocaglobal.com" not in _USERS_DB:
+        _USERS_DB["diego.bravob@ocaglobal.com"] = UserInDB(
+            id=2, email="diego.bravob@ocaglobal.com", full_name="Diego Bravo",
+            role="admin", is_active=True, created_at=datetime.utcnow(),
+            hashed_password=get_password_hash("Diego123"),
         )
-        USERS_DB[editor.email] = editor
-
-    if "viewer@ocaglobal.com" not in USERS_DB:
-        viewer = UserInDB(
-            id=3,
-            email="viewer@ocaglobal.com",
-            full_name="Visualizador",
-            role="viewer",
-            is_active=True,
-            created_at=datetime.utcnow(),
-            hashed_password=get_password_hash("viewer123"),
+    if "editor@ocaglobal.com" not in _USERS_DB:
+        _USERS_DB["editor@ocaglobal.com"] = UserInDB(
+            id=3, email="editor@ocaglobal.com", full_name="Editor",
+            role="editor", is_active=True, created_at=datetime.utcnow(),
+            hashed_password=get_password_hash("Editor123"),
         )
-        USERS_DB[viewer.email] = viewer
+    if "viewer@ocaglobal.com" not in _USERS_DB:
+        _USERS_DB["viewer@ocaglobal.com"] = UserInDB(
+            id=4, email="viewer@ocaglobal.com", full_name="Visualizador",
+            role="viewer", is_active=True, created_at=datetime.utcnow(),
+            hashed_password=get_password_hash("Viewer123"),
+        )
 
-    if "diego.bravob@ocaglobal.com" not in USERS_DB:
-        diego = UserInDB(
-            id=4,
+
+# Initialize memory users if no DB
+if not _use_db:
+    _init_default_users_memory()
+
+
+# ============================================================
+# Database-backed functions (async)
+# ============================================================
+
+async def get_user_by_email_db(db: AsyncSession, email: str) -> Optional[UserInDB]:
+    result = await db.execute(select(UserModel).where(UserModel.email == email))
+    user = result.scalar_one_or_none()
+    if user:
+        return UserInDB(
+            id=user.id, email=user.email, full_name=user.full_name,
+            role=user.role, is_active=user.is_active,
+            created_at=user.created_at,
+            updated_at=user.updated_at,
+            last_login=user.last_login,
+            hashed_password=user.hashed_password,
+        )
+    return None
+
+
+async def authenticate_user_db(db: AsyncSession, email: str, password: str) -> Optional[UserInDB]:
+    user = await get_user_by_email_db(db, email)
+    if not user:
+        return None
+    if not verify_password(password, user.hashed_password):
+        return None
+    # Update last_login
+    await db.execute(
+        update(UserModel).where(UserModel.email == email).values(last_login=datetime.utcnow())
+    )
+    await db.commit()
+    return user
+
+
+async def create_user_db(db: AsyncSession, user_data: UserCreate) -> User:
+    user = UserModel(
+        email=user_data.email,
+        full_name=user_data.full_name,
+        role=user_data.role,
+        is_active=user_data.is_active,
+        hashed_password=get_password_hash(user_data.password),
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return User(
+        id=user.id, email=user.email, full_name=user.full_name,
+        role=user.role, is_active=user.is_active, created_at=user.created_at,
+        updated_at=user.updated_at, last_login=user.last_login,
+    )
+
+
+async def update_user_db(db: AsyncSession, user_id: int, data: dict) -> Optional[User]:
+    result = await db.execute(select(UserModel).where(UserModel.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        return None
+
+    if "full_name" in data and data["full_name"] is not None:
+        user.full_name = data["full_name"]
+    if "role" in data and data["role"] is not None:
+        user.role = data["role"]
+    if "is_active" in data and data["is_active"] is not None:
+        user.is_active = data["is_active"]
+    if "email" in data and data["email"] is not None:
+        user.email = data["email"]
+    if "password" in data and data["password"]:
+        user.hashed_password = get_password_hash(data["password"])
+
+    user.updated_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(user)
+
+    return User(
+        id=user.id, email=user.email, full_name=user.full_name,
+        role=user.role, is_active=user.is_active, created_at=user.created_at,
+        updated_at=user.updated_at, last_login=user.last_login,
+    )
+
+
+async def delete_user_db(db: AsyncSession, user_id: int) -> bool:
+    result = await db.execute(select(UserModel).where(UserModel.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        return False
+    await db.delete(user)
+    await db.commit()
+    return True
+
+
+async def get_all_users_db(db: AsyncSession) -> List[User]:
+    result = await db.execute(select(UserModel).order_by(UserModel.id))
+    users = result.scalars().all()
+    return [
+        User(
+            id=u.id, email=u.email, full_name=u.full_name,
+            role=u.role, is_active=u.is_active, created_at=u.created_at,
+            updated_at=u.updated_at, last_login=u.last_login,
+        )
+        for u in users
+    ]
+
+
+async def seed_default_admin(db: AsyncSession):
+    """Create default admin if users table is empty."""
+    result = await db.execute(select(UserModel))
+    if result.first() is None:
+        admin = UserModel(
             email="diego.bravob@ocaglobal.com",
             full_name="Diego Bravo",
+            hashed_password=get_password_hash("Diego123"),
             role="admin",
             is_active=True,
-            created_at=datetime.utcnow(),
-            hashed_password=get_password_hash("diego123"),
         )
-        USERS_DB[diego.email] = diego
+        db.add(admin)
+        await db.commit()
+        print("Default admin user created: diego.bravob@ocaglobal.com")
+
+
+# ============================================================
+# Compatibility layer (works with both DB and in-memory)
+# ============================================================
 
 def get_user_by_email(email: str) -> Optional[UserInDB]:
-    return USERS_DB.get(email)
+    """Sync version for in-memory fallback only."""
+    return _USERS_DB.get(email)
 
 
 def authenticate_user(email: str, password: str) -> Optional[UserInDB]:
+    """Sync version for in-memory fallback only."""
     user = get_user_by_email(email)
     if not user:
         return None
@@ -70,23 +188,47 @@ def authenticate_user(email: str, password: str) -> Optional[UserInDB]:
 
 
 def create_user(user_data: UserCreate) -> User:
-    user_id = len(USERS_DB) + 1
+    """Sync version for in-memory fallback only."""
+    user_id = max((u.id for u in _USERS_DB.values()), default=0) + 1
     user = UserInDB(
-        id=user_id,
-        email=user_data.email,
-        full_name=user_data.full_name,
-        role=user_data.role,
-        is_active=user_data.is_active,
+        id=user_id, email=user_data.email, full_name=user_data.full_name,
+        role=user_data.role, is_active=user_data.is_active,
         created_at=datetime.utcnow(),
         hashed_password=get_password_hash(user_data.password),
     )
-    USERS_DB[user.email] = user
+    _USERS_DB[user.email] = user
     return User.model_validate(user)
 
 
 def get_all_users() -> List[User]:
-    return [User.model_validate(user) for user in USERS_DB.values()]
+    """Sync version for in-memory fallback only."""
+    return [User.model_validate(user) for user in _USERS_DB.values()]
 
 
-# Initialize default users
-init_default_users()
+def update_user(user_id: int, data: dict) -> Optional[User]:
+    """Sync version for in-memory fallback only."""
+    for email, user in list(_USERS_DB.items()):
+        if user.id == user_id:
+            if "full_name" in data:
+                user.full_name = data["full_name"]
+            if "role" in data:
+                user.role = data["role"]
+            if "is_active" in data:
+                user.is_active = data["is_active"]
+            if "email" in data and data["email"] != email:
+                _USERS_DB[data["email"]] = user
+                user.email = data["email"]
+                del _USERS_DB[email]
+            if "password" in data:
+                user.hashed_password = get_password_hash(data["password"])
+            return User.model_validate(user)
+    return None
+
+
+def delete_user(user_id: int) -> bool:
+    """Sync version for in-memory fallback only."""
+    for email, user in list(_USERS_DB.items()):
+        if user.id == user_id:
+            del _USERS_DB[email]
+            return True
+    return False

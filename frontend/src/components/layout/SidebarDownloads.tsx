@@ -10,11 +10,12 @@ import {
   Radio,
   SearchX,
   Scissors,
+  GitCompare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ExportModal } from '@/components/ui/ExportModal'
 
-type ReportType = 'nncc' | 'lecturas' | 'teleco' | 'calidad' | 'corte'
+type ReportType = 'nncc' | 'lecturas' | 'teleco' | 'calidad' | 'corte' | 'medidores_cruzados'
 
 interface Report {
   id: ReportType
@@ -26,6 +27,7 @@ interface Report {
 
 const reports: Report[] = [
   { id: 'nncc', name: 'Nuevas Conexiones', shortName: 'NNCC', icon: ClipboardCheck, enabled: true },
+  { id: 'medidores_cruzados', name: 'Medidores Cruzados', shortName: 'Med. Cruzados', icon: GitCompare, enabled: true },
   { id: 'lecturas', name: 'Lecturas', shortName: 'Lecturas', icon: FileText, enabled: true },
   { id: 'teleco', name: 'Telecomunicaciones', shortName: 'Telecom', icon: Radio, enabled: true },
   { id: 'corte', name: 'Corte y Reposición', shortName: 'Corte y Repo.', icon: Scissors, enabled: true },

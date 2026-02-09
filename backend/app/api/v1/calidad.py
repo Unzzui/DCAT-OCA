@@ -32,7 +32,7 @@ async def get_calidad(
     current_user: User = Depends(get_current_user),
 ):
     """Get paginated list of Control de Perdidas inspections."""
-    return calidad_service.get_calidad_filtered_data(
+    return await calidad_service.get_calidad_filtered_data(
         search=search,
         tipo_sistema=tipo_sistema,
         tipo_resultado=tipo_resultado,
@@ -58,7 +58,7 @@ async def get_stats(
     current_user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Get aggregated statistics for Control de Perdidas."""
-    return calidad_service.get_calidad_stats(
+    return await calidad_service.get_calidad_stats(
         tipo_sistema=tipo_sistema,
         comuna=comuna,
         contratista=contratista,
@@ -72,7 +72,7 @@ async def get_comunas(
     current_user: User = Depends(get_current_user),
 ):
     """Get list of unique comunas."""
-    return calidad_service.get_calidad_comunas()
+    return await calidad_service.get_calidad_comunas()
 
 
 @router.get("/inspectores", response_model=List[Dict[str, Any]])
@@ -80,7 +80,7 @@ async def get_inspectores(
     current_user: User = Depends(get_current_user),
 ):
     """Get list of inspectors with their stats."""
-    return calidad_service.get_calidad_inspectores()
+    return await calidad_service.get_calidad_inspectores()
 
 
 @router.get("/contratistas", response_model=List[str])
@@ -88,7 +88,7 @@ async def get_contratistas(
     current_user: User = Depends(get_current_user),
 ):
     """Get list of unique contratistas."""
-    return calidad_service.get_calidad_contratistas()
+    return await calidad_service.get_calidad_contratistas()
 
 
 @router.get("/resultados", response_model=List[str])
@@ -96,15 +96,15 @@ async def get_resultados(
     current_user: User = Depends(get_current_user),
 ):
     """Get list of unique resultado types."""
-    return calidad_service.get_calidad_resultados()
+    return await calidad_service.get_calidad_resultados()
 
 
 @router.get("/periodos")
 async def get_periodos(
     current_user: User = Depends(get_current_user),
-) -> Dict[str, List[int]]:
+) -> Dict[str, Any]:
     """Get available months and years."""
-    return calidad_service.get_calidad_periodos()
+    return await calidad_service.get_calidad_periodos()
 
 
 @router.get("/evolucion")
@@ -114,7 +114,7 @@ async def get_evolucion(
     current_user: User = Depends(get_current_user),
 ) -> List[Dict[str, Any]]:
     """Get monthly evolution of quality metrics."""
-    return calidad_service.get_calidad_evolucion(
+    return await calidad_service.get_calidad_evolucion(
         tipo_sistema=tipo_sistema,
         contratista=contratista,
     )
@@ -134,7 +134,7 @@ async def export_data(
     current_user: User = Depends(get_current_user),
 ):
     """Export filtered data to CSV or Excel."""
-    result = calidad_service.get_calidad_filtered_data(
+    result = await calidad_service.get_calidad_filtered_data(
         search=search,
         tipo_sistema=tipo_sistema,
         tipo_resultado=tipo_resultado,

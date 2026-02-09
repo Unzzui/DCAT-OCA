@@ -1,20 +1,54 @@
+import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .core.config import settings
 from .api.v1.router import api_router
+from .db import session as db_session
+
+
+async def _warmup_cache():
+    """Pre-warm the stats cache in background so first user request is fast."""
+    try:
+        from .api.v1.dashboard import _compute_dashboard_summary
+        await _compute_dashboard_summary()
+        print("Cache warmup complete")
+    except Exception as e:
+        print(f"Cache warmup failed (non-critical): {e}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    if settings.DATABASE_URL:
+        db_session.init_async_engine()
+        print("Database connection initialized")
+        # Pre-warm cache in background
+        asyncio.create_task(_warmup_cache())
+    else:
+        print("No DATABASE_URL configured, using file-based data")
+
+    yield
+
+    # Shutdown
+    if db_session.async_engine:
+        await db_session.async_engine.dispose()
+        print("Database connection closed")
+
 
 app = FastAPI(
     title=settings.APP_NAME,
     description="API para el Dashboard de Control y Analisis Tecnico - OCA Global",
     version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if settings.DEBUG else None,
+    redoc_url="/redoc" if settings.DEBUG else None,
+    lifespan=lifespan,
 )
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

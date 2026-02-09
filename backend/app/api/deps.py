@@ -1,15 +1,18 @@
-from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from ..core.security import decode_token
+from ..core.config import settings
 from ..schemas.user import User, UserRole
-from ..services.user_service import get_user_by_email
+from ..services.user_service import get_user_by_email, get_user_by_email_db
+from ..db import session as db_session
 
 security = HTTPBearer()
 
+_use_db = bool(settings.DATABASE_URL)
+
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> User:
     """Get current authenticated user from JWT token."""
     token = credentials.credentials
@@ -30,7 +33,13 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user = get_user_by_email(email)
+    user = None
+    if _use_db and db_session.AsyncSessionLocal:
+        async with db_session.AsyncSessionLocal() as session:
+            user = await get_user_by_email_db(session, email)
+    else:
+        user = get_user_by_email(email)
+
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

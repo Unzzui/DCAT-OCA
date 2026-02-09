@@ -17,7 +17,7 @@ import {
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
 
-type ReportType = 'nncc' | 'lecturas' | 'teleco' | 'calidad' | 'corte'
+type ReportType = 'nncc' | 'lecturas' | 'teleco' | 'calidad' | 'corte' | 'medidores_cruzados'
 
 interface ExportModalProps {
   isOpen: boolean
@@ -114,6 +114,7 @@ export function ExportModal({ isOpen, onClose, reportType, reportName }: ExportM
     teleco: '/api/v1/teleco',
     calidad: '/api/v1/calidad',
     corte: '/api/v1/corte',
+    medidores_cruzados: '/api/v1/medidores-cruzados',
   }
 
   // Obtener conteo de registros
@@ -232,6 +233,19 @@ export function ExportModal({ isOpen, onClose, reportType, reportName }: ExportM
           newOptions.situacion_encontrada = (situaciones as string[]).slice(0, 20).map(s => ({ value: s, label: s }))
           newOptions.anio = (periodos.anios || []).map(a => ({ value: String(a), label: String(a) }))
         }
+
+        if (reportType === 'medidores_cruzados') {
+          const [zonas, comunas, estadosMedidor, periodos] = await Promise.all([
+            api.get<string[]>('/api/v1/medidores-cruzados/zonas').catch(() => []),
+            api.get<string[]>('/api/v1/medidores-cruzados/comunas').catch(() => []),
+            api.get<string[]>('/api/v1/medidores-cruzados/estados-medidor').catch(() => []),
+            api.get<PeriodosResponse>('/api/v1/medidores-cruzados/periodos').catch(() => ({ meses: [], anios: [] })),
+          ])
+          newOptions.zona = (zonas as string[]).map(z => ({ value: z, label: z }))
+          newOptions.comuna = (comunas as string[]).slice(0, 50).map(c => ({ value: c, label: c }))
+          newOptions.estado_medidor = (estadosMedidor as string[]).map(e => ({ value: e, label: e }))
+          newOptions.anio = (periodos.anios || []).map(a => ({ value: String(a), label: String(a) }))
+        }
       } catch (error) {
         console.error('Error loading options:', error)
       }
@@ -278,6 +292,7 @@ export function ExportModal({ isOpen, onClose, reportType, reportName }: ExportM
         teleco: '/api/v1/teleco/export',
         calidad: '/api/v1/calidad/export',
         corte: '/api/v1/corte/export',
+        medidores_cruzados: '/api/v1/medidores-cruzados/export',
       }
 
       const params: Record<string, string | number | boolean | undefined> = {
@@ -588,6 +603,38 @@ export function ExportModal({ isOpen, onClose, reportType, reportName }: ExportM
                           />
                         )}
                       </div>
+                    </div>
+                  )}
+
+                  {/* Medidores Cruzados */}
+                  {reportType === 'medidores_cruzados' && (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        {options.zona && options.zona.length > 0 && (
+                          <NativeSelect
+                            placeholder="Todas las zonas"
+                            value={filters.zona || ''}
+                            onChange={v => handleFilterChange('zona', v)}
+                            options={options.zona}
+                          />
+                        )}
+                        {options.estado_medidor && options.estado_medidor.length > 0 && (
+                          <NativeSelect
+                            placeholder="Todos los estados"
+                            value={filters.estado_medidor || ''}
+                            onChange={v => handleFilterChange('estado_medidor', v)}
+                            options={options.estado_medidor}
+                          />
+                        )}
+                      </div>
+                      {options.comuna && options.comuna.length > 0 && (
+                        <NativeSelect
+                          placeholder="Todas las comunas"
+                          value={filters.comuna || ''}
+                          onChange={v => handleFilterChange('comuna', v)}
+                          options={options.comuna}
+                        />
+                      )}
                     </div>
                   )}
                 </div>

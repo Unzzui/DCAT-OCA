@@ -2,8 +2,9 @@ import pandas as pd
 from pathlib import Path
 
 DATA_DIR = Path(__file__).parent.parent / "data"
-EXCEL_FILE = DATA_DIR / "Consolidado Inspecciones Calidad Mayo 2024 - 2025 (Diego Bravo).xlsx"
+EXCEL_FILE = DATA_DIR / "ENEL Calidad" / "3. CyR" / "Entregado por Yeimei Castro" / "Consolidado Inspecciones Calidad Mayo 2024 - 2025 - 2026 (Diego Bravo).xlsx"
 OUTPUT_CSV = DATA_DIR / "informe_corte.csv"
+
 
 def excel_to_csv():
     print(f"Leyendo archivo: {EXCEL_FILE}")
@@ -30,4 +31,4 @@ def excel_to_csv():
     return df
 
 if __name__ == "__main__":
-    excel_to_csv()   
+    excel_to_csv()

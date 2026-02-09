@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Header } from '@/components/layout/Header'
 import {
   Card,
@@ -150,7 +150,7 @@ export default function InformeNNCCPage() {
   const [globalBase, setGlobalBase] = useState('')
   const [globalMes, setGlobalMes] = useState('')
   const [globalAnio, setGlobalAnio] = useState('')
-  const [periodos, setPeriodos] = useState<{ meses: number[]; anios: number[] }>({ meses: [], anios: [] })
+  const [periodos, setPeriodos] = useState<{ meses: number[]; anios: number[]; ultimo_mes: number | null; ultimo_anio: number | null }>({ meses: [], anios: [], ultimo_mes: null, ultimo_anio: null })
 
   // Table filters
   const [dateRange, setDateRange] = useState<DateRangePickerValue>({})
@@ -165,15 +165,18 @@ export default function InformeNNCCPage() {
   const [bases, setBases] = useState<string[]>([])
   const [inspectors, setInspectors] = useState<Array<{ inspector: string; cantidad: number; efectividad: number }>>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportFormat, setExportFormat] = useState<'excel' | 'csv'>('excel')
 
   const fetchPeriodos = useCallback(async () => {
     try {
-      const response = await api.get<{ meses: number[]; anios: number[] }>('/api/v1/nuevas-conexiones/periodos')
+      const response = await api.get<{ meses: number[]; anios: number[]; ultimo_mes: number | null; ultimo_anio: number | null }>('/api/v1/nuevas-conexiones/periodos')
       setPeriodos(response)
+      return response
     } catch (error) {
       console.error('Error fetching periodos:', error)
+      return null
     }
   }, [])
 
@@ -241,22 +244,55 @@ export default function InformeNNCCPage() {
     }
   }, [])
 
+  const initialLoadDone = useRef(false)
+  const skipNextRefresh = useRef(false)
+
   useEffect(() => {
-    const loadInitialData = async () => {
+    const loadAll = async () => {
       setLoading(true)
-      await Promise.all([fetchZonas(), fetchBases(), fetchInspectors(), fetchPeriodos()])
+      const [, , , periodosRes] = await Promise.all([fetchZonas(), fetchBases(), fetchInspectors(), fetchPeriodos()])
+
+      const initMes = periodosRes?.ultimo_mes ? String(periodosRes.ultimo_mes) : ''
+      const initAnio = periodosRes?.ultimo_anio ? String(periodosRes.ultimo_anio) : ''
+
+      const statsParams = new URLSearchParams()
+      if (initMes) statsParams.append('mes', initMes)
+      if (initAnio) statsParams.append('anio', initAnio)
+
+      const dataParams = new URLSearchParams()
+      dataParams.append('page', '1')
+      dataParams.append('limit', '10')
+      if (initMes) dataParams.append('mes', initMes)
+      if (initAnio) dataParams.append('anio', initAnio)
+
+      const [statsRes, dataRes] = await Promise.all([
+        api.get<Stats>(`/api/v1/nuevas-conexiones/stats${statsParams.toString() ? '?' + statsParams.toString() : ''}`),
+        api.get<PaginatedResponse>(`/api/v1/nuevas-conexiones?${dataParams.toString()}`),
+      ])
+      setStats(statsRes)
+      setData(dataRes)
+
+      skipNextRefresh.current = true
+      setGlobalMes(initMes)
+      setGlobalAnio(initAnio)
+
       setLoading(false)
+      initialLoadDone.current = true
     }
-    loadInitialData()
-  }, [fetchZonas, fetchBases, fetchInspectors, fetchPeriodos])
+    loadAll()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
-    fetchStats()
-  }, [fetchStats])
-
-  useEffect(() => {
-    fetchData()
-  }, [fetchData])
+    if (!initialLoadDone.current) return
+    if (skipNextRefresh.current) { skipNextRefresh.current = false; return }
+    const doRefresh = async () => {
+      setRefreshing(true)
+      await Promise.all([fetchStats(), fetchData()])
+      setRefreshing(false)
+    }
+    doRefresh()
+  }, [fetchStats, fetchData])
 
   const getStatusBadge = (status: string) => {
     if (!status) return <span className="text-gray-400">-</span>
@@ -424,12 +460,18 @@ export default function InformeNNCCPage() {
         recordCount={hasActiveFilters ? data?.total : stats?.total}
         hasFilters={hasActiveFilters}
       />
+      {refreshing && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-white rounded-full shadow-lg px-4 py-2 flex items-center gap-2 border">
+          <div className="animate-spin rounded-full h-4 w-4 border-2 border-oca-blue border-t-transparent"></div>
+          <span className="text-sm text-gray-600">Actualizando datos...</span>
+        </div>
+      )}
       <Header
         title="Informe NNCC"
         subtitle="Control de Inspecciones de Cumplimiento"
       />
 
-      <div className="p-6">
+      <div className={`p-6 transition-opacity duration-200 ${refreshing ? 'opacity-60 pointer-events-none' : ''}`}>
         {/* Global Filters Bar */}
         <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
           <Flex justifyContent="between" alignItems="center" className="flex-wrap gap-4">

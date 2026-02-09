@@ -71,6 +71,69 @@ export interface NuevasConexionesStats {
   potencia_total: number
 }
 
+// Medidores Cruzados types
+export interface MedidorCruzado {
+  id: number
+  mes: string | null
+  fecha_correo: string | null
+  num_cliente: string | null
+  encargado_enel: string | null
+  area: string | null
+  etapa_caso: string | null
+  fecha_asignacion: string | null
+  fecha_analisis: string | null
+  fecha_inspeccion: string | null
+  direccion: string | null
+  comuna: string | null
+  medidor_sistema: string | null
+  zona: string | null
+  eett: string | null
+  observacion_inspector: string | null
+  estado_medidor: string | null
+  inspector: string | null
+  resultado_inspeccion: string | null
+  eepp_oca: string | null
+}
+
+export interface MedidoresCruzadosStats {
+  total: number
+  por_zona: Record<string, number>
+  por_inspector: Array<{ inspector: string; cantidad: number; tasa_bien_ejecutado: number }>
+  por_estado_medidor: Record<string, number>
+  por_resultado: Record<string, number>
+  por_comuna: Array<{ comuna: string; cantidad: number }>
+  por_mes: Array<{ mes: string; cantidad: number }>
+  por_etapa_caso: Record<string, number>
+  evolucion_mensual: Array<{ mes: string; total: number; bien_ejecutados: number; mal_ejecutados: number; tasa_bien_ejecutado: number }>
+}
+
+// Admin types
+export interface UserAdmin {
+  id: number
+  email: string
+  full_name: string
+  role: UserRole
+  is_active: boolean
+  created_at: string
+  updated_at: string | null
+  last_login: string | null
+}
+
+export interface UserCreateRequest {
+  email: string
+  full_name: string
+  password: string
+  role: UserRole
+  is_active: boolean
+}
+
+export interface UserUpdateRequest {
+  email?: string
+  full_name?: string
+  role?: UserRole
+  is_active?: boolean
+}
+
 // General types
 export interface SelectOption {
   value: string

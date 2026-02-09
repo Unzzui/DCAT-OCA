@@ -1,4 +1,4 @@
-from .user import User, UserCreate, UserInDB, UserRole
+from .user import User, UserCreate, UserUpdate, UserInDB, UserRole
 from .token import Token, TokenPayload
 from .nuevas_conexiones import (
     NuevaConexion,
@@ -6,10 +6,16 @@ from .nuevas_conexiones import (
     NuevasConexionesStats,
     PaginatedResponse,
 )
+from .medidores_cruzados import (
+    MedidorCruzado,
+    MedidoresCruzadosFilters,
+    MedidoresCruzadosStats,
+)
 
 __all__ = [
     "User",
     "UserCreate",
+    "UserUpdate",
     "UserInDB",
     "UserRole",
     "Token",
@@ -18,4 +24,7 @@ __all__ = [
     "NuevasConexionesFilters",
     "NuevasConexionesStats",
     "PaginatedResponse",
+    "MedidorCruzado",
+    "MedidoresCruzadosFilters",
+    "MedidoresCruzadosStats",
 ]
