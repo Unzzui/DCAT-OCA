@@ -1,12 +1,34 @@
 // User types
 export type UserRole = 'admin' | 'editor' | 'viewer'
 
+// Módulos disponibles en el sistema
+export const AVAILABLE_MODULES = [
+  'dashboard',
+  'nuevas-conexiones',
+  'lecturas',
+  'telecomunicaciones',
+  'corte-reposicion',
+  'control-perdidas',
+] as const
+
+export type ModuleId = typeof AVAILABLE_MODULES[number]
+
+export const MODULE_LABELS: Record<ModuleId, string> = {
+  'dashboard': 'Dashboard',
+  'nuevas-conexiones': 'Nuevas Conexiones',
+  'lecturas': 'Lecturas',
+  'telecomunicaciones': 'Telecomunicaciones',
+  'corte-reposicion': 'Corte y Reposición',
+  'control-perdidas': 'Control de Pérdidas',
+}
+
 export interface User {
   id: number
   email: string
   full_name: string
   role: UserRole
   is_active: boolean
+  allowed_modules: string[]
   created_at: string
 }
 
@@ -114,6 +136,7 @@ export interface UserAdmin {
   full_name: string
   role: UserRole
   is_active: boolean
+  allowed_modules: string[]
   created_at: string
   updated_at: string | null
   last_login: string | null
@@ -125,6 +148,7 @@ export interface UserCreateRequest {
   password: string
   role: UserRole
   is_active: boolean
+  allowed_modules: string[]
 }
 
 export interface UserUpdateRequest {
@@ -132,6 +156,7 @@ export interface UserUpdateRequest {
   full_name?: string
   role?: UserRole
   is_active?: boolean
+  allowed_modules?: string[]
 }
 
 // General types

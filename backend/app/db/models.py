@@ -1,6 +1,16 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Text, Index, Date
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Text, Index, Date, JSON
 from sqlalchemy.sql import func
 from .base import Base
+
+# Módulos disponibles por defecto
+DEFAULT_MODULES = [
+    "dashboard",
+    "nuevas-conexiones",
+    "lecturas",
+    "telecomunicaciones",
+    "corte-reposicion",
+    "control-perdidas",
+]
 
 
 class UserModel(Base):
@@ -12,6 +22,7 @@ class UserModel(Base):
     hashed_password = Column(String(255), nullable=False)
     role = Column(String(50), nullable=False, default="viewer")
     is_active = Column(Boolean, default=True)
+    allowed_modules = Column(JSON, nullable=False, default=DEFAULT_MODULES)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_login = Column(DateTime(timezone=True), nullable=True)

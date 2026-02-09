@@ -1,11 +1,22 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { SidebarProvider, useSidebar } from '@/contexts/SidebarContext'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { cn } from '@/lib/utils'
+
+// Mapeo de rutas a módulos
+const ROUTE_TO_MODULE: Record<string, string> = {
+  '/dashboard': 'dashboard',
+  '/dashboard/nuevas-conexiones': 'nuevas-conexiones',
+  '/dashboard/nuevas-conexiones/medidores-cruzados': 'nuevas-conexiones',
+  '/dashboard/lecturas': 'lecturas',
+  '/dashboard/telecomunicaciones': 'telecomunicaciones',
+  '/dashboard/corte-reposicion': 'corte-reposicion',
+  '/dashboard/control-perdidas': 'control-perdidas',
+}
 
 function DashboardContent({ children }: { children: React.ReactNode }) {
   const { isNormal, isCollapsed, isReportMode, setNormal } = useSidebar()
@@ -54,13 +65,40 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const router = useRouter()
-  const { isAuthenticated, isLoading } = useAuth()
+  const pathname = usePathname()
+  const { isAuthenticated, isLoading, hasModuleAccess, user } = useAuth()
+  const [hasAccess, setHasAccess] = useState(true)
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.push('/login')
     }
   }, [isAuthenticated, isLoading, router])
+
+  // Verificar acceso al módulo actual
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && user) {
+      // Rutas de admin no necesitan verificación de módulos (ya tienen su propia protección)
+      if (pathname?.startsWith('/dashboard/admin') || pathname?.startsWith('/dashboard/configuracion')) {
+        setHasAccess(true)
+        return
+      }
+
+      // Buscar el módulo correspondiente a la ruta actual
+      const moduleId = ROUTE_TO_MODULE[pathname || '']
+      if (moduleId) {
+        const access = hasModuleAccess(moduleId)
+        setHasAccess(access)
+        if (!access) {
+          // Redirigir al dashboard si no tiene acceso
+          router.push('/dashboard')
+        }
+      } else {
+        // Si no hay mapeo, permitir acceso (por compatibilidad)
+        setHasAccess(true)
+      }
+    }
+  }, [pathname, isLoading, isAuthenticated, hasModuleAccess, user, router])
 
   if (isLoading) {
     return (
@@ -72,6 +110,18 @@ export default function DashboardLayout({
 
   if (!isAuthenticated) {
     return null
+  }
+
+  // Mostrar mensaje si no tiene acceso (mientras redirige)
+  if (!hasAccess) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-500">No tienes acceso a este módulo</p>
+          <p className="text-sm text-gray-400 mt-1">Redirigiendo...</p>
+        </div>
+      </div>
+    )
   }
 
   return (

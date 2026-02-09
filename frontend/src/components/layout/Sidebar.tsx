@@ -31,23 +31,25 @@ interface NavItem {
   icon: React.ComponentType<{ size?: number; className?: string }>
   disabled?: boolean
   children?: NavItem[]
+  moduleId?: string  // ID del módulo para control de acceso
 }
 
 const navigation: NavItem[] = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, moduleId: 'dashboard' },
   {
     name: 'Nuevas Conexiones',
     href: '/dashboard/nuevas-conexiones',
     icon: ClipboardCheck,
+    moduleId: 'nuevas-conexiones',
     children: [
-      { name: 'Informe NNCC', href: '/dashboard/nuevas-conexiones', icon: ClipboardCheck },
-      { name: 'Med. Cruzados', href: '/dashboard/nuevas-conexiones/medidores-cruzados', icon: GitCompare },
+      { name: 'Informe NNCC', href: '/dashboard/nuevas-conexiones', icon: ClipboardCheck, moduleId: 'nuevas-conexiones' },
+      { name: 'Med. Cruzados', href: '/dashboard/nuevas-conexiones/medidores-cruzados', icon: GitCompare, moduleId: 'nuevas-conexiones' },
     ],
   },
-  { name: 'Lecturas', href: '/dashboard/lecturas', icon: FileText },
-  { name: 'Telecom', href: '/dashboard/telecomunicaciones', icon: Radio },
-  { name: 'Corte y Repo.', href: '/dashboard/corte-reposicion', icon: Scissors },
-  { name: 'Ctrl. Perdidas', href: '/dashboard/control-perdidas', icon: SearchX },
+  { name: 'Lecturas', href: '/dashboard/lecturas', icon: FileText, moduleId: 'lecturas' },
+  { name: 'Telecom', href: '/dashboard/telecomunicaciones', icon: Radio, moduleId: 'telecomunicaciones' },
+  { name: 'Corte y Repo.', href: '/dashboard/corte-reposicion', icon: Scissors, moduleId: 'corte-reposicion' },
+  { name: 'Ctrl. Perdidas', href: '/dashboard/control-perdidas', icon: SearchX, moduleId: 'control-perdidas' },
 ]
 
 const adminNavigation: NavItem[] = [
@@ -67,6 +69,33 @@ export function Sidebar() {
   }
 
   const isExpanded = isNormal
+
+  // Filtrar navegación según módulos permitidos del usuario
+  // Los admins siempre ven todos los módulos
+  const userModules = user?.allowed_modules || []
+  const isAdmin = user?.role === 'admin'
+
+  const filterNavigation = (items: NavItem[]): NavItem[] => {
+    return items.filter(item => {
+      // Si es admin, mostrar todo
+      if (isAdmin) return true
+      // Si no tiene moduleId, mostrar siempre (por compatibilidad)
+      if (!item.moduleId) return true
+      // Verificar si el usuario tiene acceso al módulo
+      return userModules.includes(item.moduleId)
+    }).map(item => {
+      // Si tiene hijos, filtrarlos también
+      if (item.children) {
+        return {
+          ...item,
+          children: filterNavigation(item.children)
+        }
+      }
+      return item
+    })
+  }
+
+  const filteredNavigation = filterNavigation(navigation)
 
   const toggleExpand = (name: string) => {
     setExpandedItems(prev =>
@@ -194,7 +223,7 @@ export function Sidebar() {
 
         {/* Navigation */}
         <nav className="flex-1 py-2 px-2 space-y-0.5 overflow-y-auto">
-          {navigation.map(renderNavItem)}
+          {filteredNavigation.map(renderNavItem)}
 
           {user?.role === 'admin' && (
             <div className="pt-2 mt-2 border-t border-white/10 space-y-0.5">

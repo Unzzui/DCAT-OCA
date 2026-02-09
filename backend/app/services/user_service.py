@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 from sqlalchemy.exc import IntegrityError
 
-from ..schemas.user import User, UserCreate, UserInDB, UserUpdate
+from ..schemas.user import User, UserCreate, UserInDB, UserUpdate, AVAILABLE_MODULES
 from ..core.security import get_password_hash, verify_password, verify_password_async
 from ..db.models import UserModel
 from ..core.config import settings
@@ -34,24 +34,28 @@ def _init_default_users_memory():
             id=1, email="admin@ocaglobal.com", full_name="Administrador",
             role="admin", is_active=True, created_at=now,
             hashed_password=_DEFAULT_HASHES["Admin123"],
+            allowed_modules=AVAILABLE_MODULES.copy(),
         )
     if "diego.bravob@ocaglobal.com" not in _USERS_DB:
         _USERS_DB["diego.bravob@ocaglobal.com"] = UserInDB(
             id=2, email="diego.bravob@ocaglobal.com", full_name="Diego Bravo",
             role="admin", is_active=True, created_at=now,
             hashed_password=_DEFAULT_HASHES["Diego123"],
+            allowed_modules=AVAILABLE_MODULES.copy(),
         )
     if "editor@ocaglobal.com" not in _USERS_DB:
         _USERS_DB["editor@ocaglobal.com"] = UserInDB(
             id=3, email="editor@ocaglobal.com", full_name="Editor",
             role="editor", is_active=True, created_at=now,
             hashed_password=_DEFAULT_HASHES["Editor123"],
+            allowed_modules=AVAILABLE_MODULES.copy(),
         )
     if "viewer@ocaglobal.com" not in _USERS_DB:
         _USERS_DB["viewer@ocaglobal.com"] = UserInDB(
             id=4, email="viewer@ocaglobal.com", full_name="Visualizador",
             role="viewer", is_active=True, created_at=now,
             hashed_password=_DEFAULT_HASHES["Viewer123"],
+            allowed_modules=AVAILABLE_MODULES.copy(),
         )
 
 
@@ -71,6 +75,7 @@ async def get_user_by_email_db(db: AsyncSession, email: str) -> Optional[UserInD
         return UserInDB(
             id=user.id, email=user.email, full_name=user.full_name,
             role=user.role, is_active=user.is_active,
+            allowed_modules=user.allowed_modules or AVAILABLE_MODULES.copy(),
             created_at=user.created_at,
             updated_at=user.updated_at,
             last_login=user.last_login,
@@ -100,6 +105,7 @@ async def create_user_db(db: AsyncSession, user_data: UserCreate) -> User:
         full_name=user_data.full_name,
         role=user_data.role,
         is_active=user_data.is_active,
+        allowed_modules=user_data.allowed_modules,
         hashed_password=get_password_hash(user_data.password),
     )
     db.add(user)
@@ -107,7 +113,9 @@ async def create_user_db(db: AsyncSession, user_data: UserCreate) -> User:
     await db.refresh(user)
     return User(
         id=user.id, email=user.email, full_name=user.full_name,
-        role=user.role, is_active=user.is_active, created_at=user.created_at,
+        role=user.role, is_active=user.is_active,
+        allowed_modules=user.allowed_modules or AVAILABLE_MODULES.copy(),
+        created_at=user.created_at,
         updated_at=user.updated_at, last_login=user.last_login,
     )
 
@@ -128,6 +136,8 @@ async def update_user_db(db: AsyncSession, user_id: int, data: dict) -> Optional
         user.email = data["email"]
     if "password" in data and data["password"]:
         user.hashed_password = get_password_hash(data["password"])
+    if "allowed_modules" in data and data["allowed_modules"] is not None:
+        user.allowed_modules = data["allowed_modules"]
 
     user.updated_at = datetime.utcnow()
     await db.commit()
@@ -135,7 +145,9 @@ async def update_user_db(db: AsyncSession, user_id: int, data: dict) -> Optional
 
     return User(
         id=user.id, email=user.email, full_name=user.full_name,
-        role=user.role, is_active=user.is_active, created_at=user.created_at,
+        role=user.role, is_active=user.is_active,
+        allowed_modules=user.allowed_modules or AVAILABLE_MODULES.copy(),
+        created_at=user.created_at,
         updated_at=user.updated_at, last_login=user.last_login,
     )
 
@@ -156,7 +168,9 @@ async def get_all_users_db(db: AsyncSession) -> List[User]:
     return [
         User(
             id=u.id, email=u.email, full_name=u.full_name,
-            role=u.role, is_active=u.is_active, created_at=u.created_at,
+            role=u.role, is_active=u.is_active,
+            allowed_modules=u.allowed_modules or AVAILABLE_MODULES.copy(),
+            created_at=u.created_at,
             updated_at=u.updated_at, last_login=u.last_login,
         )
         for u in users
@@ -173,6 +187,7 @@ async def seed_default_admin(db: AsyncSession):
             hashed_password=get_password_hash("Diego123"),
             role="admin",
             is_active=True,
+            allowed_modules=AVAILABLE_MODULES.copy(),
         )
         db.add(admin)
         await db.commit()
@@ -214,6 +229,7 @@ def create_user(user_data: UserCreate) -> User:
     user = UserInDB(
         id=user_id, email=user_data.email, full_name=user_data.full_name,
         role=user_data.role, is_active=user_data.is_active,
+        allowed_modules=user_data.allowed_modules,
         created_at=datetime.utcnow(),
         hashed_password=get_password_hash(user_data.password),
     )
@@ -242,6 +258,8 @@ def update_user(user_id: int, data: dict) -> Optional[User]:
                 del _USERS_DB[email]
             if "password" in data:
                 user.hashed_password = get_password_hash(data["password"])
+            if "allowed_modules" in data and data["allowed_modules"] is not None:
+                user.allowed_modules = data["allowed_modules"]
             return User.model_validate(user)
     return None
 

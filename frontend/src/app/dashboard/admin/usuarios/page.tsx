@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { api } from '@/lib/api'
-import { UserAdmin, UserRole } from '@/types'
+import { UserAdmin, UserRole, AVAILABLE_MODULES, MODULE_LABELS, ModuleId } from '@/types'
 
 interface FormData {
   email: string
@@ -26,6 +26,7 @@ interface FormData {
   password: string
   role: UserRole
   is_active: boolean
+  allowed_modules: string[]
 }
 
 const initialFormData: FormData = {
@@ -34,6 +35,7 @@ const initialFormData: FormData = {
   password: '',
   role: 'viewer',
   is_active: true,
+  allowed_modules: [...AVAILABLE_MODULES],
 }
 
 const roleLabels: Record<UserRole, string> = {
@@ -100,6 +102,7 @@ export default function AdminUsuariosPage() {
       password: '',
       role: u.role,
       is_active: u.is_active,
+      allowed_modules: u.allowed_modules || [...AVAILABLE_MODULES],
     })
     setError('')
     setShowModal(true)
@@ -112,11 +115,14 @@ export default function AdminUsuariosPage() {
     try {
       if (editingUser) {
         // Update
-        const updateData: Record<string, string | boolean> = {}
+        const updateData: Record<string, string | boolean | string[]> = {}
         if (formData.full_name !== editingUser.full_name) updateData.full_name = formData.full_name
         if (formData.email !== editingUser.email) updateData.email = formData.email
         if (formData.role !== editingUser.role) updateData.role = formData.role
         if (formData.is_active !== editingUser.is_active) updateData.is_active = formData.is_active
+        // Siempre enviar allowed_modules si cambió
+        const modulesChanged = JSON.stringify(formData.allowed_modules.sort()) !== JSON.stringify((editingUser.allowed_modules || []).sort())
+        if (modulesChanged) updateData.allowed_modules = formData.allowed_modules
 
         await api.put(`/api/v1/admin/users/${editingUser.id}`, updateData)
         setSuccess('Usuario actualizado exitosamente')
@@ -258,6 +264,7 @@ export default function AdminUsuariosPage() {
                   <th className="px-4 py-3 text-left font-medium text-gray-600">Email</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-600">Nombre</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-600">Rol</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-600">Módulos</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-600">Estado</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-600">Ultimo Login</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-600">Acciones</th>
@@ -273,6 +280,20 @@ export default function AdminUsuariosPage() {
                     <td className="px-4 py-3">
                       <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${roleColors[u.role]}`}>
                         {roleLabels[u.role]}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
+                          (u.allowed_modules?.length || 0) === AVAILABLE_MODULES.length
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : (u.allowed_modules?.length || 0) === 0
+                              ? 'bg-red-100 text-red-700'
+                              : 'bg-amber-100 text-amber-700'
+                        }`}
+                        title={u.allowed_modules?.map(m => MODULE_LABELS[m as ModuleId] || m).join(', ') || 'Sin módulos'}
+                      >
+                        {u.allowed_modules?.length || 0}/{AVAILABLE_MODULES.length}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -416,6 +437,52 @@ export default function AdminUsuariosPage() {
                   <option value="editor">Editor</option>
                   <option value="admin">Administrador</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Módulos Permitidos</label>
+                <div className="space-y-2 p-3 border rounded-md bg-gray-50 max-h-48 overflow-y-auto">
+                  {AVAILABLE_MODULES.map((moduleId) => (
+                    <label key={moduleId} className="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                      <input
+                        type="checkbox"
+                        checked={formData.allowed_modules.includes(moduleId)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setFormData(prev => ({
+                              ...prev,
+                              allowed_modules: [...prev.allowed_modules, moduleId]
+                            }))
+                          } else {
+                            setFormData(prev => ({
+                              ...prev,
+                              allowed_modules: prev.allowed_modules.filter(m => m !== moduleId)
+                            }))
+                          }
+                        }}
+                        className="rounded border-gray-300 text-oca-blue focus:ring-oca-blue"
+                      />
+                      <span className="text-sm text-gray-700">{MODULE_LABELS[moduleId as ModuleId]}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, allowed_modules: [...AVAILABLE_MODULES] }))}
+                    className="text-xs text-oca-blue hover:underline"
+                  >
+                    Seleccionar todos
+                  </button>
+                  <span className="text-xs text-gray-400">|</span>
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, allowed_modules: [] }))}
+                    className="text-xs text-gray-500 hover:underline"
+                  >
+                    Deseleccionar todos
+                  </button>
+                </div>
               </div>
 
               <div className="flex items-center gap-2">

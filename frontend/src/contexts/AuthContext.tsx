@@ -11,6 +11,7 @@ interface AuthContextType {
   isAuthenticated: boolean
   login: (credentials: LoginCredentials) => Promise<void>
   logout: () => void
+  hasModuleAccess: (moduleId: string) => boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -52,6 +53,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.href = '/login'
   }
 
+  const hasModuleAccess = (moduleId: string): boolean => {
+    if (!user) return false
+    // Los admins siempre tienen acceso a todo
+    if (user.role === 'admin') return true
+    // Verificar si el módulo está en la lista de permitidos
+    return user.allowed_modules?.includes(moduleId) ?? false
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -60,6 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!user,
         login,
         logout,
+        hasModuleAccess,
       }}
     >
       {children}
