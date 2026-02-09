@@ -32,7 +32,7 @@ import {
   TabPanels,
   ProgressBar,
 } from '@tremor/react'
-import { Search, Filter, CheckCircle, XCircle, Users, Building, BarChart3, TrendingUp, TrendingDown, AlertTriangle, Info, AlertCircle } from 'lucide-react'
+import { Search, Filter, CheckCircle, XCircle, Users, Building, BarChart3, TrendingUp, TrendingDown, AlertTriangle, Info, AlertCircle, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { ExportOverlay } from '@/components/ui/ExportOverlay'
 import { ExportDropdown } from '@/components/ui/ExportDropdown'
@@ -117,6 +117,7 @@ interface InspeccionItem {
   cliente_conforme: string
   estado_empalme: string
   cumple_norma_cc: string
+  link_formulario: string | null
 }
 
 interface PaginatedResponse {
@@ -1232,6 +1233,7 @@ export default function InformeNNCCPage() {
                       <TableHeaderCell>Cliente Conforme</TableHeaderCell>
                       <TableHeaderCell>Zona</TableHeaderCell>
                       <TableHeaderCell>Inspector</TableHeaderCell>
+                      <TableHeaderCell>Formulario</TableHeaderCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -1252,6 +1254,22 @@ export default function InformeNNCCPage() {
                         </TableCell>
                         <TableCell className="text-gray-500">{item.zona}</TableCell>
                         <TableCell className="text-gray-500 truncate max-w-[150px]">{item.inspector}</TableCell>
+                        <TableCell>
+                          {item.link_formulario ? (
+                            <a
+                              href={item.link_formulario}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-oca-blue hover:text-oca-blue-dark transition-colors"
+                              title="Ver formulario"
+                            >
+                              <ExternalLink size={14} />
+                              <span className="text-sm">Ver</span>
+                            </a>
+                          ) : (
+                            <span className="text-gray-400 text-sm">-</span>
+                          )}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

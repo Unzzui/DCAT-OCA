@@ -79,12 +79,70 @@ def update_manifest(manifest: dict, paths: list[str]):
 # Helpers
 # ---------------------------------------------------------------------------
 
+def extract_hyperlinks_from_column(filepath: str, sheet_name: str, column_name: str) -> dict:
+    """
+    Extract hyperlinks from a specific column in an Excel file.
+    Returns a dict mapping row index (0-based, data rows) to hyperlink URL.
+    """
+    try:
+        from openpyxl import load_workbook
+        import warnings
+        warnings.filterwarnings('ignore', category=UserWarning)
+
+        wb = load_workbook(filepath, data_only=False)
+        ws = wb[sheet_name]
+
+        # Find the column index for the target column
+        col_idx = None
+        for col in range(1, ws.max_column + 1):
+            cell_val = ws.cell(row=1, column=col).value
+            if cell_val and str(cell_val).strip() == column_name:
+                col_idx = col
+                break
+
+        if col_idx is None:
+            print(f"    Column '{column_name}' not found in sheet '{sheet_name}'")
+            wb.close()
+            return {}
+
+        # Extract hyperlinks (row 2 onwards = data rows, index 0-based for DataFrame)
+        hyperlinks = {}
+        for row_idx in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            if cell.hyperlink and cell.hyperlink.target:
+                # row_idx - 2 to convert to 0-based DataFrame index
+                hyperlinks[row_idx - 2] = cell.hyperlink.target
+
+        wb.close()
+        return hyperlinks
+    except Exception as e:
+        print(f"    Error extracting hyperlinks: {e}")
+        return {}
+
+
 def clean_unnamed_cols(df: pd.DataFrame) -> pd.DataFrame:
     mask = df.columns.to_series().str.startswith("Unnamed").fillna(True)
     return df.loc[:, ~mask]
 
 
+def ensure_column_exists(engine, table: str, column: str, column_type: str = "TEXT"):
+    """Ensure a column exists in the table, adding it if needed."""
+    with engine.connect() as conn:
+        result = conn.execute(text(f"""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = :table AND column_name = :column
+        """), {"table": table, "column": column})
+        if not result.fetchone():
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}"))
+            conn.commit()
+            print(f"    Added column '{column}' to table '{table}'")
+
+
 def truncate_and_insert(engine, table: str, df: pd.DataFrame, chunksize: int = 5000):
+    # Ensure any new columns exist before inserting
+    if table == "nncc" and "link_formulario" in df.columns:
+        ensure_column_exists(engine, table, "link_formulario", "TEXT")
+
     with engine.connect() as conn:
         conn.execute(text(f"TRUNCATE TABLE {table}"))
         conn.commit()
@@ -100,18 +158,28 @@ def truncate_and_insert(engine, table: str, df: pd.DataFrame, chunksize: int = 5
 # ---------------------------------------------------------------------------
 
 def process_nncc(engine) -> list[str]:
-    """NNCC - single Excel file."""
-    src = str(ENEL_DIR / "1. NNCC" / "2025-05 INFORME NNCC (2024-2029) ENE 2026.xlsx")
-    # Fallback: check data dir directly
+    """NNCC - single Excel file with hyperlink extraction."""
+    # Primary path: 5. Nuevas Conexiones/NNCC/
+    src = str(ENEL_DIR / "5. Nuevas Conexiones" / "NNCC" / "2025-05 INFORME NNCC (2024-2029) ENE 2026.xlsx")
+
+    # Fallback paths
     if not os.path.exists(src):
-        alt = str(DATA_DIR / "2025-05 INFORME NNCC (2024-2029) ENE 2026.xlsx")
-        if os.path.exists(alt):
-            src = alt
+        alt_paths = [
+            ENEL_DIR / "1. NNCC" / "2025-05 INFORME NNCC (2024-2029) ENE 2026.xlsx",
+            DATA_DIR / "2025-05 INFORME NNCC (2024-2029) ENE 2026.xlsx",
+        ]
+        for alt in alt_paths:
+            if os.path.exists(str(alt)):
+                src = str(alt)
+                break
         else:
             # Try glob for any NNCC xlsx
-            matches = glob_mod.glob(str(ENEL_DIR / "1. NNCC" / "*.xlsx"))
+            matches = glob_mod.glob(str(ENEL_DIR / "5. Nuevas Conexiones" / "NNCC" / "*.xlsx"))
+            if not matches:
+                matches = glob_mod.glob(str(ENEL_DIR / "1. NNCC" / "*.xlsx"))
             if not matches:
                 matches = glob_mod.glob(str(DATA_DIR / "*NNCC*.xlsx"))
+            matches = [m for m in matches if "~$" not in m]
             if matches:
                 src = matches[0]
             else:
@@ -121,6 +189,19 @@ def process_nncc(engine) -> list[str]:
     print(f"    Reading: {os.path.basename(src)}")
     df = pd.read_excel(src, sheet_name="BASE ACTUAL")
     df = clean_unnamed_cols(df)
+
+    # Extract hyperlinks from LINK FORMULARIO column using openpyxl
+    print("    Extracting hyperlinks from LINK FORMULARIO column...")
+    hyperlinks = extract_hyperlinks_from_column(src, "BASE ACTUAL", "LINK FORMULARIO")
+
+    # Add hyperlinks to dataframe
+    if hyperlinks:
+        # hyperlinks dict is 0-indexed (row 0 = first data row after header)
+        df["link_formulario"] = df.index.map(lambda i: hyperlinks.get(i, None))
+        print(f"    Found {len([v for v in hyperlinks.values() if v])} hyperlinks")
+    else:
+        df["link_formulario"] = None
+        print("    No hyperlinks found")
 
     # Column mapping (from migrate_data.py)
     column_mapping = {
@@ -158,7 +239,7 @@ def process_nncc(engine) -> list[str]:
         'multa', 'observaciones_multa', 'fecha_inspeccion', 'inspector',
         'estado_contratista', 'resultado_normalizacion', 'cumple_norma_cc',
         'cliente_conforme', 'estado_empalme', 'tipo_inspeccion', 'voltaje',
-        'mes', 'anio',
+        'mes', 'anio', 'link_formulario',
     ]
     df = df[[c for c in known_cols if c in df.columns]]
 

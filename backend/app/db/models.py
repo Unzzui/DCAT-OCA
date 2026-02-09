@@ -45,6 +45,7 @@ class NNCCModel(Base):
     voltaje = Column(String(50), nullable=True)
     mes = Column(Integer, nullable=True)
     anio = Column(Integer, nullable=True)
+    link_formulario = Column(Text, nullable=True)
 
 
 class MedidoresCruzadosModel(Base):

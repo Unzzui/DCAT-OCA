@@ -126,7 +126,7 @@ async def get_filtered_data(
                TO_CHAR(fecha_inspeccion, 'YYYY-MM-DD') as fecha_inspeccion,
                inspector, estado_contratista, resultado_normalizacion,
                cumple_norma_cc, cliente_conforme, estado_empalme,
-               tipo_inspeccion, voltaje, mes, anio
+               tipo_inspeccion, voltaje, mes, anio, link_formulario
         FROM nncc WHERE {where}
         ORDER BY {sort_by} {order_dir} NULLS LAST
         LIMIT :limit OFFSET :offset""",
