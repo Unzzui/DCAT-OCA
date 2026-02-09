@@ -17,6 +17,46 @@ class NormalizePathMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+async def _run_migrations():
+    """Run pending database migrations."""
+    if not db_session.AsyncSessionLocal:
+        return
+
+    try:
+        async with db_session.AsyncSessionLocal() as session:
+            from sqlalchemy import text
+
+            # Check if allowed_modules column exists
+            result = await session.execute(text("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'allowed_modules'
+            """))
+            column_exists = result.fetchone() is not None
+
+            if not column_exists:
+                print("Adding allowed_modules column to users table...", flush=True)
+                # Add the column with default value (all modules)
+                await session.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN allowed_modules JSON
+                    DEFAULT '["dashboard", "nuevas-conexiones", "lecturas", "telecomunicaciones", "corte-reposicion", "control-perdidas"]'::json
+                """))
+                await session.commit()
+                print("Migration complete: allowed_modules column added", flush=True)
+            else:
+                # Ensure existing users with NULL have all modules
+                await session.execute(text("""
+                    UPDATE users
+                    SET allowed_modules = '["dashboard", "nuevas-conexiones", "lecturas", "telecomunicaciones", "corte-reposicion", "control-perdidas"]'::json
+                    WHERE allowed_modules IS NULL
+                """))
+                await session.commit()
+                print("Database schema is up to date", flush=True)
+    except Exception as e:
+        print(f"Migration check failed: {e}", flush=True)
+
+
 async def _warmup_cache():
     """Pre-warm the stats cache in background so first user request is fast."""
     try:
@@ -40,6 +80,8 @@ async def lifespan(app: FastAPI):
         if settings.DATABASE_URL:
             db_session.init_async_engine()
             print("Database engine created", flush=True)
+            # Run migrations
+            await _run_migrations()
             # Pre-warm cache in background
             asyncio.create_task(_warmup_cache())
         else:

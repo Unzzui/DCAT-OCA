@@ -13,6 +13,11 @@ DEFAULT_MODULES = [
 ]
 
 
+def get_default_modules():
+    """Return a copy of default modules (callable for SQLAlchemy default)."""
+    return DEFAULT_MODULES.copy()
+
+
 class UserModel(Base):
     __tablename__ = "users"
 
@@ -22,7 +27,7 @@ class UserModel(Base):
     hashed_password = Column(String(255), nullable=False)
     role = Column(String(50), nullable=False, default="viewer")
     is_active = Column(Boolean, default=True)
-    allowed_modules = Column(JSON, nullable=False, default=DEFAULT_MODULES)
+    allowed_modules = Column(JSON, nullable=True, default=get_default_modules)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_login = Column(DateTime(timezone=True), nullable=True)
