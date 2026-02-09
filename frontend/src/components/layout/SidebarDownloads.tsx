@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ExportModal } from '@/components/ui/ExportModal'
+import { useAuth } from '@/contexts/AuthContext'
 
 type ReportType = 'nncc' | 'lecturas' | 'teleco' | 'calidad' | 'corte' | 'medidores_cruzados'
 
@@ -23,15 +24,16 @@ interface Report {
   shortName: string
   icon: React.ElementType
   enabled: boolean
+  moduleId: string  // Módulo asociado para control de acceso
 }
 
 const reports: Report[] = [
-  { id: 'nncc', name: 'Nuevas Conexiones', shortName: 'NNCC', icon: ClipboardCheck, enabled: true },
-  { id: 'medidores_cruzados', name: 'Medidores Cruzados', shortName: 'Med. Cruzados', icon: GitCompare, enabled: true },
-  { id: 'lecturas', name: 'Lecturas', shortName: 'Lecturas', icon: FileText, enabled: true },
-  { id: 'teleco', name: 'Telecomunicaciones', shortName: 'Telecom', icon: Radio, enabled: true },
-  { id: 'corte', name: 'Corte y Reposición', shortName: 'Corte y Repo.', icon: Scissors, enabled: true },
-  { id: 'calidad', name: 'Control de Pérdidas', shortName: 'Ctrl. Pérdidas', icon: SearchX, enabled: true },
+  { id: 'nncc', name: 'Nuevas Conexiones', shortName: 'NNCC', icon: ClipboardCheck, enabled: true, moduleId: 'nuevas-conexiones' },
+  { id: 'medidores_cruzados', name: 'Medidores Cruzados', shortName: 'Med. Cruzados', icon: GitCompare, enabled: true, moduleId: 'nuevas-conexiones' },
+  { id: 'lecturas', name: 'Lecturas', shortName: 'Lecturas', icon: FileText, enabled: true, moduleId: 'lecturas' },
+  { id: 'teleco', name: 'Telecomunicaciones', shortName: 'Telecom', icon: Radio, enabled: true, moduleId: 'telecomunicaciones' },
+  { id: 'corte', name: 'Corte y Reposición', shortName: 'Corte y Repo.', icon: Scissors, enabled: true, moduleId: 'corte-reposicion' },
+  { id: 'calidad', name: 'Control de Pérdidas', shortName: 'Ctrl. Pérdidas', icon: SearchX, enabled: true, moduleId: 'control-perdidas' },
 ]
 
 interface SidebarDownloadsProps {
@@ -41,6 +43,17 @@ interface SidebarDownloadsProps {
 export function SidebarDownloads({ isExpanded }: SidebarDownloadsProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [selectedReport, setSelectedReport] = useState<Report | null>(null)
+  const { user, hasModuleAccess } = useAuth()
+
+  // Filtrar reportes según módulos permitidos
+  const isAdmin = user?.role === 'admin'
+  const hasModuleRestrictions = Array.isArray(user?.allowed_modules)
+
+  const filteredReports = reports.filter(report => {
+    if (isAdmin) return true
+    if (!hasModuleRestrictions) return true
+    return hasModuleAccess(report.moduleId)
+  })
 
   const handleReportClick = (report: Report) => {
     if (!report.enabled) return
@@ -50,6 +63,11 @@ export function SidebarDownloads({ isExpanded }: SidebarDownloadsProps) {
 
   const closeModal = () => {
     setSelectedReport(null)
+  }
+
+  // Si no hay reportes disponibles, no mostrar nada
+  if (filteredReports.length === 0) {
+    return null
   }
 
   return (
@@ -103,7 +121,7 @@ export function SidebarDownloads({ isExpanded }: SidebarDownloadsProps) {
 
               {/* Reports */}
               <div className="p-1.5">
-                {reports.map((report) => (
+                {filteredReports.map((report) => (
                   <button
                     key={report.id}
                     onClick={() => handleReportClick(report)}
