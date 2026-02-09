@@ -83,6 +83,7 @@ def extract_hyperlinks_from_column(filepath: str, sheet_name: str, column_name: 
     """
     Extract hyperlinks from a specific column in an Excel file.
     Returns a dict mapping row index (0-based, data rows) to hyperlink URL.
+    Combines target + location for complete URLs (e.g., https://domain.com/#/path).
     """
     try:
         from openpyxl import load_workbook
@@ -109,9 +110,25 @@ def extract_hyperlinks_from_column(filepath: str, sheet_name: str, column_name: 
         hyperlinks = {}
         for row_idx in range(2, ws.max_row + 1):
             cell = ws.cell(row=row_idx, column=col_idx)
-            if cell.hyperlink and cell.hyperlink.target:
+            if cell.hyperlink:
+                # Combine target (base URL) + # + location (path) for complete URL
+                target = cell.hyperlink.target or ""
+                location = cell.hyperlink.location or ""
+
+                if target and location:
+                    # Remove trailing slash from target if present
+                    base = target.rstrip('/')
+                    # Build complete URL with hash for SPA routing
+                    full_url = f"{base}/#{location}"
+                elif target:
+                    full_url = target
+                elif location:
+                    full_url = location
+                else:
+                    continue
+
                 # row_idx - 2 to convert to 0-based DataFrame index
-                hyperlinks[row_idx - 2] = cell.hyperlink.target
+                hyperlinks[row_idx - 2] = full_url
 
         wb.close()
         return hyperlinks

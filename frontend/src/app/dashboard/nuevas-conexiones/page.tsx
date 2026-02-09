@@ -1239,7 +1239,21 @@ export default function InformeNNCCPage() {
                   <TableBody>
                     {data?.items.map((item) => (
                       <TableRow key={item.id}>
-                        <TableCell className="font-medium">{item.cliente}</TableCell>
+                        <TableCell className="font-medium">
+                          {item.link_formulario ? (
+                            <a
+                              href={item.link_formulario}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-oca-blue hover:text-oca-blue-dark hover:underline transition-colors"
+                              title="Ver formulario"
+                            >
+                              {item.cliente}
+                            </a>
+                          ) : (
+                            item.cliente
+                          )}
+                        </TableCell>
                         <TableCell className="text-gray-500">{item.fecha_inspeccion}</TableCell>
                         <TableCell>{getStatusBadge(item.estado_efectividad)}</TableCell>
                         <TableCell>{getResultadoBadge(item.resultado_inspeccion)}</TableCell>
