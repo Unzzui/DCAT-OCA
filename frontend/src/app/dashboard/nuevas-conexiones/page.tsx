@@ -931,10 +931,10 @@ export default function InformeNNCCPage() {
                 </Card>
               </div>
 
-              {/* Top 5 Comunas Problemáticas - Movido desde Vista Cliente */}
+              {/* Top 5 Comunas con Mayor Actividad */}
               <Card className="mb-6">
-                <Title>Comunas con Mayor Incidencia de Problemas</Title>
-                <Text className="text-gray-500">Comunas con más problemas de ejecución, conformidad y normativa</Text>
+                <Title>Comunas con Mayor Volumen de Trabajo</Title>
+                <Text className="text-gray-500">Comunas con mayor cantidad de casos registrados</Text>
                 <div className="mt-4 grid grid-cols-1 lg:grid-cols-5 gap-4">
                   {stats?.top_comunas_problemas && stats.top_comunas_problemas.length > 0 ? (
                     stats.top_comunas_problemas.map((comuna, idx) => (

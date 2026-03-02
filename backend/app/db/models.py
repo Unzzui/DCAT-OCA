@@ -356,3 +356,167 @@ class CorteReposicionModel(Base):
         Index('ix_corte_zona_fecha', 'zona', 'fecha_inspeccion'),
         Index('ix_corte_comuna_inspector', 'comuna', 'inspector'),
     )
+
+
+# ============= MODULO LECTURAS - NUEVAS TABLAS =============
+
+class IpalInspeccionesModel(Base):
+    """Inspecciones de Seguridad (IPAL)"""
+    __tablename__ = "ipal_inspecciones"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    fecha = Column(Date, nullable=True, index=True)
+    comuna = Column(String(100), nullable=True, index=True)
+    nombre_lector = Column(String(200), nullable=True)
+    empresa = Column(String(100), nullable=True, index=True)
+    inspector = Column(String(100), nullable=True, index=True)
+    estado = Column(String(50), nullable=True)
+    hora_llamada = Column(String(50), nullable=True)
+    nro_ipal = Column(String(50), nullable=True)
+    observacion = Column(Text, nullable=True)
+    codigo_hallazgo = Column(String(100), nullable=True)
+    observacion_inspector = Column(Text, nullable=True)
+    direccion = Column(Text, nullable=True)
+    mes = Column(Integer, nullable=True)
+    anio = Column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index('ix_ipal_fecha_empresa', 'fecha', 'empresa'),
+    )
+
+
+class LecturasPreventivasModel(Base):
+    """Lecturas Preventivas"""
+    __tablename__ = "lecturas_preventivas"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    numero_cliente = Column(String(50), nullable=True, index=True)
+    sector = Column(Integer, nullable=True, index=True)
+    zona = Column(Integer, nullable=True, index=True)
+    grupo = Column(Integer, nullable=True)
+    ruta = Column(String(20), nullable=True)
+    tipo_operacion = Column(String(50), nullable=True)
+    tarifa = Column(String(20), nullable=True)
+    direccion = Column(Text, nullable=True)
+    consumo_prom_diario = Column(Float, nullable=True)
+    periodo_lectura = Column(Integer, nullable=True)
+    medidor = Column(String(50), nullable=True)
+    marca_medidor = Column(String(50), nullable=True)
+    constante = Column(Integer, nullable=True)
+    lectura_anterior = Column(Float, nullable=True)
+    lectura_actual = Column(Float, nullable=True)
+    consumo_anterior = Column(Float, nullable=True)
+    consumo_actual = Column(Float, nullable=True)
+    irregularidad_1 = Column(String(100), nullable=True)
+    irregularidad_2 = Column(String(100), nullable=True)
+    irregularidad_3 = Column(String(100), nullable=True)
+    irregularidad_4 = Column(String(100), nullable=True)
+    verificacion_lectura = Column(String(100), nullable=True)
+    codigo_lector = Column(Integer, nullable=True)
+    insitu = Column(String(5), nullable=True)
+    facturado = Column(String(5), nullable=True)
+    rf = Column(String(5), nullable=True)
+    mes = Column(Integer, nullable=True)
+    anio = Column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index('ix_preventivas_sector_zona', 'sector', 'zona'),
+    )
+
+
+class OrdenesGenericasModel(Base):
+    """Ordenes Genericas"""
+    __tablename__ = "ordenes_genericas"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    numero_incidencia = Column(String(50), nullable=True)
+    asignado_a = Column(String(100), nullable=True, index=True)
+    fecha = Column(Date, nullable=True, index=True)
+    lectura_activa = Column(Float, nullable=True)
+    mes = Column(Integer, nullable=True)
+    anio = Column(Integer, nullable=True)
+
+
+class RefacturacionesModel(Base):
+    """Refacturaciones por error de lectura"""
+    __tablename__ = "refacturaciones"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cliente = Column(String(50), nullable=True, index=True)
+    ruta = Column(String(20), nullable=True)
+    medidor = Column(String(50), nullable=True)
+    lectura_normal = Column(Float, nullable=True)
+    fecha_normal = Column(Date, nullable=True)
+    lectura_erronea = Column(Float, nullable=True)
+    fecha_erronea = Column(Date, nullable=True)
+    lectura_verificada = Column(Float, nullable=True)
+    fecha_verificada = Column(Date, nullable=True)
+    constante = Column(Integer, nullable=True)
+    facturado = Column(Integer, nullable=True)
+    kwh_cobrar = Column(Float, nullable=True)
+    kwh_rebajar = Column(Float, nullable=True)
+    modif_lectura = Column(String(100), nullable=True)
+    orden = Column(String(50), nullable=True)
+    comuna = Column(String(100), nullable=True, index=True)
+    leido_por = Column(String(100), nullable=True, index=True)
+    mes = Column(Integer, nullable=True)
+    anio = Column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index('ix_refas_comuna_leido', 'comuna', 'leido_por'),
+    )
+
+
+class LecturasGrabarModel(Base):
+    """Lecturas pendientes por grabar"""
+    __tablename__ = "lecturas_grabar"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cliente = Column(String(50), nullable=True, index=True)
+    leido_por = Column(String(100), nullable=True, index=True)
+    ruta = Column(String(20), nullable=True)
+    tarifa = Column(String(20), nullable=True)
+    medidor_activo = Column(String(50), nullable=True)
+    medidor_reactivo = Column(String(50), nullable=True)
+    fecha_lectura = Column(Date, nullable=True, index=True)
+    centro_operativo = Column(String(100), nullable=True)
+    lec_activa = Column(Float, nullable=True)
+    lec_reactiva = Column(Float, nullable=True)
+    hora_max_hp = Column(String(50), nullable=True)
+    fecha_max_hp = Column(Date, nullable=True)
+    dem_hp_encontrada = Column(Float, nullable=True)
+    dem_hp_dejada = Column(Float, nullable=True)
+    dem_fp_encontrada = Column(Float, nullable=True)
+    dem_fp_dejada = Column(Float, nullable=True)
+    observacion = Column(Text, nullable=True)
+    fecha_envio = Column(Date, nullable=True)
+    mes = Column(Integer, nullable=True)
+    anio = Column(Integer, nullable=True)
+
+
+class InspeccionesCorreosModel(Base):
+    """Inspecciones desde correos (ENEL y Colina)"""
+    __tablename__ = "inspecciones_correos"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    fuente = Column(String(20), nullable=True, index=True)  # 'ENEL' o 'COLINA'
+    fecha_recepcion = Column(Date, nullable=True, index=True)
+    cliente = Column(String(50), nullable=True, index=True)
+    quien_envio = Column(String(200), nullable=True)
+    reclamo = Column(Text, nullable=True)
+    fecha_terreno = Column(Date, nullable=True)
+    respuesta = Column(Text, nullable=True)
+    fecha_respuesta = Column(Date, nullable=True)
+    inspector = Column(String(100), nullable=True, index=True)
+    comuna = Column(String(100), nullable=True, index=True)
+    tarifa = Column(String(20), nullable=True)
+    gestion = Column(String(50), nullable=True)
+    sector = Column(Float, nullable=True)
+    fecha_inspeccion = Column(Date, nullable=True)
+    dias_respuesta = Column(Integer, nullable=True)
+    mes = Column(Integer, nullable=True)
+    anio = Column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index('ix_correos_fuente_fecha', 'fuente', 'fecha_recepcion'),
+    )

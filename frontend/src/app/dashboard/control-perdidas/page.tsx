@@ -986,7 +986,7 @@ export default function ControlPerdidasPage() {
                       decoration="left"
                       decorationColor={insight.tipo === 'success' ? 'emerald' : insight.tipo === 'warning' ? 'amber' : 'blue'}
                     >
-                      <div className="flex items-start gap-3">
+                      <div className="flex items-start gap-3"> 
                         <div className={`p-2 rounded-lg ${
                           insight.tipo === 'success' ? 'bg-emerald-100' :
                           insight.tipo === 'warning' ? 'bg-amber-100' : 'bg-blue-100'

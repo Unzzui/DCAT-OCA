@@ -250,8 +250,8 @@ async def get_calidad_stats(
     # Insights
     insights = []
     if tasa_ejecucion < 50:
-        insights.append({"tipo": "warning", "titulo": "Baja tasa de ejecucion",
-                         "mensaje": f"Solo se ha ejecutado el {tasa_ejecucion}% de las inspecciones solicitadas"})
+        insights.append({"tipo": "info", "titulo": "Ejecucion en progreso",
+                         "mensaje": f"{tasa_ejecucion}% ejecutado - {pendientes} inspecciones pendientes"})
     elif tasa_ejecucion >= 80:
         insights.append({"tipo": "success", "titulo": "Buena tasa de ejecucion",
                          "mensaje": f"Se ha ejecutado el {tasa_ejecucion}% de las inspecciones"})
@@ -261,8 +261,8 @@ async def get_calidad_stats(
     if total_anomalias > 0:
         pct = round(total_anomalias / total_ejecutadas * 100, 1)
         if pct > 10:
-            insights.append({"tipo": "warning", "titulo": "Alto indice de anomalias",
-                             "mensaje": f"{total_anomalias} casos ({pct}%) presentan anomalias en equipos"})
+            insights.append({"tipo": "info", "titulo": f"{total_anomalias} equipos con hallazgos",
+                             "mensaje": f"{pct}% de inspecciones con observaciones tecnicas"})
 
     normales_count = sum(r["cantidad"] for r in por_resultado if "NORMAL" in r["resultado"].upper())
     pct_normales = round(normales_count / total_ejecutadas * 100, 1) if total_ejecutadas > 0 else 0
@@ -275,8 +275,8 @@ async def get_calidad_stats(
 
     error_max = float(k["error_max"]) if k["error_max"] else 0
     if error_max > 5:
-        insights.append({"tipo": "warning", "titulo": "Error de medicion alto detectado",
-                         "mensaje": f"Se detectaron errores de hasta {error_max}% en medidores"})
+        insights.append({"tipo": "info", "titulo": f"Error maximo: {error_max}%",
+                         "mensaje": f"Medidores con desviacion superior al 5%"})
 
     return {
         "total_solicitadas": total_solicitadas, "total_ejecutadas": total_ejecutadas,
@@ -817,36 +817,36 @@ async def get_calidad_analisis_operacional(
     if severidad["critica"] > 0:
         pct = round(severidad["critica"] / severidad["total"] * 100, 1) if severidad["total"] > 0 else 0
         alertas.append({
-            "tipo": "danger",
-            "titulo": f"{severidad['critica']} anomalías críticas detectadas",
-            "mensaje": f"{pct}% de inspecciones con error > 5% o pernos sin normalizar.",
+            "tipo": "info",
+            "titulo": f"{severidad['critica']} anomalias registradas",
+            "mensaje": f"{pct}% de inspecciones con error > 5% o pernos pendientes de normalizar.",
         })
     if fraude["alto_riesgo"] > 5:
         alertas.append({
-            "tipo": "danger",
-            "titulo": f"{fraude['alto_riesgo']} casos con patrón sospechoso",
-            "mensaje": "Alto error de medición + perno no normalizado. Posible manipulación.",
+            "tipo": "info",
+            "titulo": f"{fraude['alto_riesgo']} casos requieren revision",
+            "mensaje": "Casos con alto error de medicion y perno pendiente de normalizar.",
         })
     if normalizacion["doble_pendiente"] > 10:
         alertas.append({
-            "tipo": "warning",
+            "tipo": "info",
             "titulo": f"{normalizacion['doble_pendiente']} casos con doble pendiente",
-            "mensaje": "Requieren normalización Y tienen perno sin normalizar.",
+            "mensaje": "Requieren normalizacion y tienen perno pendiente de normalizar.",
         })
     if clientes:
         alertas.append({
-            "tipo": "warning",
-            "titulo": f"{len(clientes)} clientes de alto riesgo identificados",
-            "mensaje": "Clientes con múltiples inspecciones anormales o alto error.",
+            "tipo": "info",
+            "titulo": f"{len(clientes)} clientes con seguimiento",
+            "mensaje": "Clientes con multiples inspecciones o revision pendiente.",
         })
 
-    # Identificar contratistas con problemas
-    contratistas_problemas = [c for c in contratistas if c["calidad"] == "mala" and c["total"] >= 20]
-    if contratistas_problemas:
-        nombres = ", ".join([c["contratista"] for c in contratistas_problemas[:3]])
+    # Identificar contratistas con oportunidad de mejora
+    contratistas_mejora = [c for c in contratistas if c["calidad"] == "mala" and c["total"] >= 20]
+    if contratistas_mejora:
+        nombres = ", ".join([c["contratista"] for c in contratistas_mejora[:3]])
         alertas.append({
-            "tipo": "warning",
-            "titulo": "Contratistas con baja calidad",
+            "tipo": "info",
+            "titulo": "Contratistas con oportunidad de mejora",
             "mensaje": f"Contratistas con tasa < 60%: {nombres}.",
         })
 

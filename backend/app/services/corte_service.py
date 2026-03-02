@@ -269,14 +269,14 @@ async def get_corte_stats(
     # Insights
     insights = []
     if tasa_calidad < 80:
-        insights.append({"tipo": "warning", "titulo": "Tasa de calidad baja",
-                         "mensaje": f"Solo el {tasa_calidad}% de las inspecciones fueron bien ejecutadas"})
+        insights.append({"tipo": "info", "titulo": "Tasa de calidad",
+                         "mensaje": f"El {tasa_calidad}% de las inspecciones fueron bien ejecutadas"})
     elif tasa_calidad >= 95:
         insights.append({"tipo": "success", "titulo": "Excelente calidad de ejecucion",
                          "mensaje": f"El {tasa_calidad}% de las inspecciones fueron bien ejecutadas"})
 
     if tasa_multa > 5:
-        insights.append({"tipo": "warning", "titulo": "Alto porcentaje de multas",
+        insights.append({"tipo": "info", "titulo": "Casos con multa",
                          "mensaje": f"{k['con_multa']} casos ({tasa_multa}%) presentan multa"})
 
     # Zonas peligrosas
@@ -290,7 +290,7 @@ async def get_corte_stats(
     if nu_count and nu_count > 0:
         pct = round(nu_count / total * 100, 1)
         if pct > 15:
-            insights.append({"tipo": "warning", "titulo": "Alto porcentaje de no ubicados",
+            insights.append({"tipo": "info", "titulo": "Casos no ubicados",
                              "mensaje": f"{nu_count} casos ({pct}%) no fueron ubicados"})
 
     fc = k["factible_cortar"]
@@ -298,8 +298,8 @@ async def get_corte_stats(
     if fc > 0:
         pct_f = round(fc / (fc + nfc) * 100, 1) if (fc + nfc) > 0 else 0
         if pct_f < 50:
-            insights.append({"tipo": "info", "titulo": "Baja factibilidad de corte",
-                             "mensaje": f"Solo el {pct_f}% de los casos es factible cortar"})
+            insights.append({"tipo": "info", "titulo": "Factibilidad de corte",
+                             "mensaje": f"El {pct_f}% de los casos es factible cortar"})
 
     return {
         "total": total, "realizadas": realizadas, "pendientes": pendientes,
@@ -700,9 +700,9 @@ async def get_corte_analisis_operacional(
         pct_no_ubicado = round(causas["no_ubicado"] / causas["total"] * 100, 1)
         if pct_no_ubicado > 15:
             alertas.append({
-                "tipo": "warning",
+                "tipo": "info",
                 "titulo": f"{pct_no_ubicado}% de casos no ubicados",
-                "mensaje": f"{causas['no_ubicado']} casos no pudieron ser ubicados. Revisar direcciones.",
+                "mensaje": f"{causas['no_ubicado']} casos no pudieron ser ubicados.",
             })
 
         pct_zona_peligrosa = round(causas["zona_peligrosa"] / causas["total"] * 100, 1)
@@ -715,28 +715,28 @@ async def get_corte_analisis_operacional(
 
     if factibilidad["factible_no_ejecutado"] > 10:
         alertas.append({
-            "tipo": "danger",
-            "titulo": f"{factibilidad['factible_no_ejecutado']} casos factibles no ejecutados",
-            "mensaje": "Casos donde era factible cortar pero no se ejecutó. Revisar motivos.",
+            "tipo": "info",
+            "titulo": f"{factibilidad['factible_no_ejecutado']} casos factibles pendientes",
+            "mensaje": "Casos donde era factible cortar pendientes de ejecucion.",
         })
 
-    # Identificar inspectores con problemas
-    inspectores_problemas = [i for i in inspectores if i["calidad"] == "mala" and i["total"] >= 10]
-    if inspectores_problemas:
-        nombres = ", ".join([i["inspector"] for i in inspectores_problemas[:3]])
+    # Identificar inspectores con oportunidad de mejora
+    inspectores_mejora = [i for i in inspectores if i["calidad"] == "mala" and i["total"] >= 10]
+    if inspectores_mejora:
+        nombres = ", ".join([i["inspector"] for i in inspectores_mejora[:3]])
         alertas.append({
-            "tipo": "warning",
-            "titulo": "Inspectores con baja calidad",
-            "mensaje": f"Tasa < 70%: {nombres}. Revisar capacitación.",
+            "tipo": "info",
+            "titulo": "Inspectores con oportunidad de mejora",
+            "mensaje": f"Tasa < 70%: {nombres}.",
         })
 
-    # Zonas con alta tasa de multas
+    # Zonas con multas
     zonas_multas = [z for z in zonas if z["con_multa"] > z["total"] * 0.1 and z["total"] >= 20]
     if zonas_multas:
         nombres_zonas = ", ".join([z["zona"] for z in zonas_multas[:3]])
         alertas.append({
-            "tipo": "warning",
-            "titulo": "Zonas con alta tasa de multas",
+            "tipo": "info",
+            "titulo": "Zonas con multas registradas",
             "mensaje": f"Zonas con > 10% de multas: {nombres_zonas}.",
         })
 

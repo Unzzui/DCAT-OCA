@@ -505,45 +505,45 @@ async def get_medidores_analisis_operacional(
     alertas = []
     if tiempos["total_dias"] > 30:
         alertas.append({
-            "tipo": "warning",
-            "titulo": "Tiempos de proceso elevados",
-            "mensaje": f"Promedio de {tiempos['total_dias']} días desde correo hasta inspección.",
+            "tipo": "info",
+            "titulo": "Tiempos de proceso",
+            "mensaje": f"Promedio de {tiempos['total_dias']} dias desde correo hasta inspeccion.",
         })
     if tiempos["casos_mayor_60"] > 0:
         pct = round(tiempos["casos_mayor_60"] / tiempos["total"] * 100, 1) if tiempos["total"] > 0 else 0
         alertas.append({
-            "tipo": "danger",
-            "titulo": f"{tiempos['casos_mayor_60']} casos con más de 60 días",
-            "mensaje": f"{pct}% de los casos tardan más de 60 días en resolverse.",
+            "tipo": "info",
+            "titulo": f"{tiempos['casos_mayor_60']} casos con mas de 60 dias",
+            "mensaje": f"{pct}% de los casos con mas de 60 dias en proceso.",
         })
     if pendientes["estancados"] > 10:
         alertas.append({
-            "tipo": "danger",
-            "titulo": f"{pendientes['estancados']} casos estancados",
-            "mensaje": "Casos sin inspección con más de 30 días desde el correo.",
+            "tipo": "info",
+            "titulo": f"{pendientes['estancados']} casos en espera",
+            "mensaje": "Casos pendientes de inspeccion con mas de 30 dias desde el correo.",
         })
     if mal_ejec["total"] > 0 and mal_ejec["mal_ejecutados"] / mal_ejec["total"] > 0.2:
         pct = round(mal_ejec["mal_ejecutados"] / mal_ejec["total"] * 100, 1)
         alertas.append({
-            "tipo": "warning",
-            "titulo": f"{pct}% de inspecciones mal ejecutadas",
+            "tipo": "info",
+            "titulo": f"{pct}% de inspecciones para revision",
             "mensaje": f"{mal_ejec['mal_ejecutados']} casos con resultado 'mal ejecutado'.",
         })
     if mal_ejec["sin_observacion"] > mal_ejec["total"] * 0.2:
         alertas.append({
-            "tipo": "warning",
-            "titulo": "Falta de documentación",
+            "tipo": "info",
+            "titulo": "Documentacion pendiente",
             "mensaje": f"{mal_ejec['sin_observacion']} inspecciones sin observaciones del inspector.",
         })
 
-    # Identificar peores inspectores
-    peores = [i for i in inspectores if i["tasa_bien_ejecutado"] < 60 and i["total"] >= 5]
-    if peores:
-        nombres = ", ".join([p["inspector"] for p in peores[:3]])
+    # Identificar inspectores con oportunidad de mejora
+    mejora = [i for i in inspectores if i["tasa_bien_ejecutado"] < 60 and i["total"] >= 5]
+    if mejora:
+        nombres = ", ".join([p["inspector"] for p in mejora[:3]])
         alertas.append({
-            "tipo": "warning",
-            "titulo": "Inspectores con baja efectividad",
-            "mensaje": f"Tasa < 60%: {nombres}. Revisar capacitación.",
+            "tipo": "info",
+            "titulo": "Inspectores con oportunidad de mejora",
+            "mensaje": f"Tasa < 60%: {nombres}.",
         })
 
     return {

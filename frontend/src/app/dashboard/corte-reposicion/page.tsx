@@ -1105,12 +1105,12 @@ export default function CorteReposicionPage() {
                           </div>
                         )}
                         {analisisOp.factibilidad_detalle.factible_no_ejecutado > 0 && (
-                          <div className="p-3 bg-rose-50 rounded-lg border-l-4 border-rose-500">
+                          <div className="p-3 bg-amber-50 rounded-lg border-l-4 border-amber-500">
                             <Flex justifyContent="between">
-                              <span className="text-sm font-medium text-rose-700">Factible pero NO ejecutado</span>
-                              <Badge color="rose">{formatNumber(analisisOp.factibilidad_detalle.factible_no_ejecutado)}</Badge>
+                              <span className="text-sm font-medium text-amber-700">Factible pendiente de ejecucion</span>
+                              <Badge color="amber">{formatNumber(analisisOp.factibilidad_detalle.factible_no_ejecutado)}</Badge>
                             </Flex>
-                            <Text className="text-xs text-rose-600 mt-1">Requiere atención inmediata</Text>
+                            <Text className="text-xs text-amber-600 mt-1">Casos pendientes de gestion</Text>
                           </div>
                         )}
                       </>

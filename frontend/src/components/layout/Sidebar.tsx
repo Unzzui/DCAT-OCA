@@ -19,6 +19,10 @@ import {
   Presentation,
   Radio,
   GitCompare,
+  Shield,
+  ClipboardList,
+  Receipt,
+  Mail,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
@@ -46,7 +50,19 @@ const navigation: NavItem[] = [
       { name: 'Med. Cruzados', href: '/dashboard/nuevas-conexiones/medidores-cruzados', icon: GitCompare, moduleId: 'nuevas-conexiones' },
     ],
   },
-  { name: 'Lecturas', href: '/dashboard/lecturas', icon: FileText, moduleId: 'lecturas' },
+  {
+    name: 'Lecturas',
+    href: '/dashboard/lecturas',
+    icon: FileText,
+    moduleId: 'lecturas',
+    children: [
+      { name: 'Verificaciones', href: '/dashboard/lecturas', icon: FileText, moduleId: 'lecturas' },
+      { name: 'Insp. Seguridad', href: '/dashboard/lecturas/ipal', icon: Shield, moduleId: 'lecturas' },
+      { name: 'Preventivas', href: '/dashboard/lecturas/preventivas', icon: ClipboardList, moduleId: 'lecturas' },
+      { name: 'Refacturaciones', href: '/dashboard/lecturas/refacturaciones', icon: Receipt, moduleId: 'lecturas' },
+      { name: 'Correos', href: '/dashboard/lecturas/correos', icon: Mail, moduleId: 'lecturas' },
+    ],
+  },
   { name: 'Telecom', href: '/dashboard/telecomunicaciones', icon: Radio, moduleId: 'telecomunicaciones' },
   { name: 'Corte y Repo.', href: '/dashboard/corte-reposicion', icon: Scissors, moduleId: 'corte-reposicion' },
   { name: 'Ctrl. Perdidas', href: '/dashboard/control-perdidas', icon: SearchX, moduleId: 'control-perdidas' },
@@ -61,7 +77,7 @@ export function Sidebar() {
   const pathname = usePathname()
   const { user, logout } = useAuth()
   const { isNormal, isCollapsed, isReportMode, toggleCollapse, setReportMode } = useSidebar()
-  const [expandedItems, setExpandedItems] = useState<string[]>(['Nuevas Conexiones'])
+  const [expandedItems, setExpandedItems] = useState<string[]>(['Nuevas Conexiones', 'Lecturas'])
 
   // En modo informe no mostrar sidebar
   if (isReportMode) {

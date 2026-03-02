@@ -359,8 +359,8 @@ async def get_stats(
     # Insights
     insights = []
     if tasa_efectividad < 95:
-        insights.append({"tipo": "warning", "titulo": "Efectividad bajo meta",
-                         "mensaje": f"La efectividad actual ({tasa_efectividad}%) está por debajo de la meta del 95%"})
+        insights.append({"tipo": "info", "titulo": "Efectividad actual",
+                         "mensaje": f"La efectividad actual es de {tasa_efectividad}% (meta: 95%)"})
     elif tasa_efectividad >= 98:
         insights.append({"tipo": "success", "titulo": "Excelente efectividad",
                          "mensaje": f"La efectividad actual ({tasa_efectividad}%) supera ampliamente la meta"})
@@ -369,17 +369,17 @@ async def get_stats(
         diff = comparativas["efectividad"]["diferencia"]
         if diff >= 3:
             insights.append({"tipo": "success", "titulo": "Tendencia positiva",
-                             "mensaje": f"La efectividad mejoró {diff}% respecto al mes anterior"})
+                             "mensaje": f"La efectividad mejoro {diff}% respecto al mes anterior"})
         elif diff <= -3:
-            insights.append({"tipo": "warning", "titulo": "Tendencia negativa",
-                             "mensaje": f"La efectividad cayó {abs(diff)}% respecto al mes anterior"})
+            insights.append({"tipo": "info", "titulo": "Variacion de efectividad",
+                             "mensaje": f"La efectividad vario {abs(diff)}% respecto al mes anterior"})
 
     total_resp = k["cc_conforme"] + k["cc_disconforme"]
     if total_resp > 0:
         tasa_conf = k["cc_conforme"] / total_resp * 100
         if tasa_conf < 90:
-            insights.append({"tipo": "warning", "titulo": "Atención en satisfacción",
-                             "mensaje": f"Solo {round(tasa_conf, 1)}% de clientes están conformes"})
+            insights.append({"tipo": "info", "titulo": "Satisfaccion del cliente",
+                             "mensaje": f"{round(tasa_conf, 1)}% de clientes estan conformes"})
 
     if top_comunas_problemas and top_comunas_problemas[0]["score_problemas"] > 10:
         tc = top_comunas_problemas[0]

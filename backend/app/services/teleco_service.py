@@ -329,14 +329,14 @@ async def get_teleco_stats(
     # Insights
     insights = []
     if tasa_aprobacion < META_APROBACION:
-        insights.append({"tipo": "warning", "titulo": "Tasa de aprobacion baja",
-                         "mensaje": f"Solo {tasa_aprobacion}% de los casos fueron aprobados (meta: {META_APROBACION}%)"})
+        insights.append({"tipo": "info", "titulo": "Tasa de aprobacion",
+                         "mensaje": f"{tasa_aprobacion}% de los casos fueron aprobados (meta: {META_APROBACION}%)"})
     elif tasa_aprobacion >= 60:
         insights.append({"tipo": "success", "titulo": "Buena tasa de aprobacion",
                          "mensaje": f"{tasa_aprobacion}% de los casos fueron aprobados"})
 
     if rechazados > aprobados:
-        insights.append({"tipo": "warning", "titulo": "Mas rechazos que aprobaciones",
+        insights.append({"tipo": "info", "titulo": "Distribucion de resultados",
                          "mensaje": f"{rechazados} rechazados vs {aprobados} aprobados"})
 
     sin_plano = k["sin_plano"]
@@ -580,31 +580,31 @@ async def get_teleco_analisis_operacional(
     alertas = []
     if reins["nunca_aprobados"] > 5:
         alertas.append({
-            "tipo": "danger",
-            "titulo": f"{reins['nunca_aprobados']} casos nunca aprobados",
-            "mensaje": "Casos con múltiples inspecciones que nunca han sido aprobados. Requieren revisión.",
+            "tipo": "info",
+            "titulo": f"{reins['nunca_aprobados']} casos pendientes de aprobacion",
+            "mensaje": "Casos con multiples inspecciones pendientes de aprobacion.",
         })
     if resp_rechazos.get("cliente", 0) > resp_rechazos.get("total", 1) * 0.3:
         alertas.append({
-            "tipo": "warning",
-            "titulo": "Alto % de rechazos por cliente",
-            "mensaje": f"{resp_rechazos['cliente']} rechazos por documentación incompleta o trabajos ya realizados.",
+            "tipo": "info",
+            "titulo": "Rechazos por documentacion",
+            "mensaje": f"{resp_rechazos['cliente']} rechazos por documentacion incompleta o trabajos ya realizados.",
         })
     if doc["pct_problemas"] > 20:
         alertas.append({
-            "tipo": "warning",
-            "titulo": "Calidad de documentación baja",
-            "mensaje": f"{doc['pct_problemas']}% de inspecciones con observaciones vacías o genéricas.",
+            "tipo": "info",
+            "titulo": "Documentacion pendiente",
+            "mensaje": f"{doc['pct_problemas']}% de inspecciones con observaciones pendientes de completar.",
         })
 
-    # Identificar peores inspectores
-    peores = [r for r in ranking if r["tasa_aprobacion"] < 40 and r["total"] >= 10]
-    if peores:
-        nombres = ", ".join([p["inspector"] for p in peores[:3]])
+    # Identificar inspectores con oportunidad de mejora
+    mejora = [r for r in ranking if r["tasa_aprobacion"] < 40 and r["total"] >= 10]
+    if mejora:
+        nombres = ", ".join([p["inspector"] for p in mejora[:3]])
         alertas.append({
-            "tipo": "warning",
-            "titulo": "Inspectores con baja aprobación",
-            "mensaje": f"Inspectores con tasa < 40%: {nombres}. Revisar capacitación.",
+            "tipo": "info",
+            "titulo": "Inspectores con oportunidad de mejora",
+            "mensaje": f"Inspectores con tasa < 40%: {nombres}.",
         })
 
     return {
