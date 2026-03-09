@@ -697,8 +697,11 @@ export default function NuevasConexionesPage() {
   }, [zonaMalEjecutadosData])
 
   const paretoOption = useMemo(() => {
-    if (!causasData?.pareto_causas?.length) return {}
-    const d = causasData.pareto_causas
+    // Use zona-filtered causas when a zona is selected, otherwise backend data
+    const d = selectedZona && zonaMalEjecutadosData?.causas_individuales?.length
+      ? zonaMalEjecutadosData.causas_individuales
+      : causasData?.pareto_causas
+    if (!d?.length) return {}
     return {
       tooltip: { ...TOOLTIP_STYLE, trigger: 'axis' as const, axisPointer: { type: 'cross' as const } },
       legend: { ...LEGEND_STYLE, data: ['Cantidad', '% Acumulado'] },
@@ -717,7 +720,7 @@ export default function NuevasConexionesPage() {
         },
       ],
     }
-  }, [causasData])
+  }, [causasData, selectedZona, zonaMalEjecutadosData])
 
   const trabajosMalOption = useMemo(() => {
     if (!causasData?.trabajos_tipicamente_mal?.length) return {}
@@ -912,6 +915,7 @@ export default function NuevasConexionesPage() {
     const mal = zonaRow.mal
     const efectivas = zonaRow.efectivas
     const totalInsp = zonaRow.total_inspecciones
+    const noEfectivas = totalInsp - efectivas
     return {
       ...overviewData.kpis,
       total_asignadas: total,
@@ -920,6 +924,8 @@ export default function NuevasConexionesPage() {
       num_mal_ejecutado: mal,
       pct_mal_ejecutado: efectivas > 0 ? (mal / efectivas) * 100 : 0,
       pct_avance: total > 0 ? (totalInsp / total) * 100 : 0,
+      tasa_efectividad_oca: totalInsp > 0 ? (efectivas / totalInsp) * 100 : 0,
+      pct_no_efectiva: totalInsp > 0 ? (noEfectivas / totalInsp) * 100 : 0,
     }
   }, [overviewData, selectedZona])
 
@@ -940,6 +946,7 @@ export default function NuevasConexionesPage() {
     return (
       <PresentationMode
         selectedBase={selectedBase}
+        selectedZona={selectedZona || null}
         kpis={kpis ?? null}
         lastInspectionDate={lastInspectionDate}
         tendenciaOption={tendenciaOption}

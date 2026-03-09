@@ -74,6 +74,7 @@ interface TendenciaTemporal {
 
 interface PresentationProps {
   selectedBase: string
+  selectedZona: string | null
   kpis: KpisData | null
   lastInspectionDate: string | null
   // Base chart options (mensual, used as fallback)
@@ -140,7 +141,7 @@ function SlideTitle({ children, sub, right }: { children: React.ReactNode; sub?:
 
 // ─── Individual Slides ──────────────────────────────────────────────────────
 
-function SlideCover({ selectedBase, lastInspectionDate }: { selectedBase: string; lastInspectionDate: string | null }) {
+function SlideCover({ selectedBase, selectedZona, lastInspectionDate }: { selectedBase: string; selectedZona: string | null; lastInspectionDate: string | null }) {
   const { isEnel } = useBrand()
   return (
     <Slide className="items-center justify-center text-center">
@@ -160,6 +161,9 @@ function SlideCover({ selectedBase, lastInspectionDate }: { selectedBase: string
       <div className="mt-8 flex items-center gap-6 text-sm text-slate-500">
         {selectedBase && (
           <span className="bg-slate-100 rounded-full px-4 py-1.5 font-medium">{selectedBase}</span>
+        )}
+        {selectedZona && (
+          <span className="bg-slate-100 rounded-full px-4 py-1.5 font-medium">Zona: {selectedZona}</span>
         )}
         {lastInspectionDate && (
           <span>Actualizado al {lastInspectionDate}</span>
@@ -339,6 +343,7 @@ function SlideMalEjecutados({ paretoOption, causasOption }: { paretoOption: ECha
 
 export function PresentationMode({
   selectedBase,
+  selectedZona,
   kpis,
   lastInspectionDate,
   tendenciaOption: baseTendenciaOption,
@@ -349,13 +354,17 @@ export function PresentationMode({
   tendenciaEfectividadOption: baseOcaOption,
   efectividadZonaOption,
   topInspectoresBarOption,
-  mapaPoints,
+  mapaPoints: rawMapaPoints,
   contratistaRanking,
   malEjecutadosData,
   tendenciaTemporal,
   ocaTendenciaEfectividad,
   onExit,
 }: PresentationProps) {
+  // Filter mapa points by zona if selected
+  const mapaPoints = useMemo(() =>
+    selectedZona ? rawMapaPoints.filter(p => p.zona === selectedZona) : rawMapaPoints
+  , [rawMapaPoints, selectedZona])
   const [currentSlide, setCurrentSlide] = useState(0)
   const [transitioning, setTransitioning] = useState(false)
   const [selectedContratista, setSelectedContratista] = useState<string | null>(null)
@@ -559,7 +568,7 @@ export function PresentationMode({
     <div className="fixed inset-0 z-[900] bg-slate-50 flex flex-col">
       {/* Slide area */}
       <div className={`flex-1 min-h-0 transition-opacity duration-150 ${transitioning ? 'opacity-0' : 'opacity-100'}`}>
-        {currentSlide === 0 && <SlideCover selectedBase={selectedBase} lastInspectionDate={lastInspectionDate} />}
+        {currentSlide === 0 && <SlideCover selectedBase={selectedBase} selectedZona={selectedZona} lastInspectionDate={lastInspectionDate} />}
         {currentSlide === 1 && kpis && <SlideKpis kpis={kpis} />}
         {currentSlide === 2 && (
           <Slide>
