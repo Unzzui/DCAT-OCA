@@ -237,43 +237,76 @@ function SlideContratistas({
     },
   }), [onScatterClick])
 
+  const totalInsp = ranking.reduce((s, r) => s + r.inspecciones, 0)
+
+  const donutOption = useMemo((): EChartsCoreOption => ({
+    tooltip: { ...TOOLTIP_STYLE, trigger: 'item' as const, formatter: (p: { name?: string; value?: number; percent?: number }) => `<b>${p.name}</b><br/>${formatNumber(p.value ?? 0)} insp. (${p.percent?.toFixed(1)}%)` },
+    series: [{
+      type: 'pie' as const,
+      radius: ['42%', '70%'],
+      center: ['50%', '50%'],
+      avoidLabelOverlap: true,
+      itemStyle: { borderColor: '#fff', borderWidth: 2 },
+      label: { show: true, fontSize: 10, color: '#64748b', formatter: (p: { name?: string; percent?: number }) => `${p.name}\n${p.percent?.toFixed(0)}%`, lineHeight: 14 },
+      labelLine: { length: 10, length2: 8, lineStyle: { color: '#cbd5e1' } },
+      emphasis: { label: { fontSize: 12, fontWeight: 'bold' as const } },
+      data: ranking.map((r, idx) => ({
+        value: r.inspecciones,
+        name: r.contratista,
+        itemStyle: { color: CONTRATISTA_COLORS[idx % CONTRATISTA_COLORS.length] },
+      })),
+    }],
+  }), [ranking])
+
   return (
     <Slide>
       <SlideTitle sub="Volumen vs calidad y ranking general">Analisis de Contratistas</SlideTitle>
-      <div className="flex-1 min-h-0 grid grid-cols-5 gap-4">
-        <div className="col-span-3">
+      <div className="flex-1 min-h-0 grid grid-cols-2 gap-4">
+        {/* Left: Scatter */}
+        <div>
           <EChart option={scatterOption} height="calc(100vh - 220px)" onEvents={scatterEvents} />
         </div>
-        <div className="col-span-2 overflow-y-auto">
-          <table className="w-full text-left">
-            <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th className="px-3 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Contratista</th>
-                <th className="px-3 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-right">Insp.</th>
-                <th className="px-3 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-right">Mal</th>
-                <th className="px-3 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-right">Tasa</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ranking.map((r, idx) => (
-                <tr
-                  key={r.contratista}
-                  onClick={() => onRowClick(r.contratista)}
-                  className="border-b border-slate-50 hover:bg-slate-100 cursor-pointer transition-colors"
-                >
-                  <td className="px-3 py-2 text-[11px] font-medium text-slate-700 truncate max-w-[140px]">
-                    <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: CONTRATISTA_COLORS[idx % CONTRATISTA_COLORS.length] }} />
-                    {r.contratista}
-                  </td>
-                  <td className="px-3 py-2 text-[11px] text-slate-600 text-right">{formatNumber(r.inspecciones)}</td>
-                  <td className="px-3 py-2 text-[11px] text-red-600 text-right">{formatNumber(r.mal_ejecutado)}</td>
-                  <td className="px-3 py-2 text-[11px] text-right font-semibold" style={{ color: r.tasa_mal >= 30 ? '#dc2626' : r.tasa_mal >= 15 ? '#d97706' : '#16a34a' }}>
-                    {pct(r.tasa_mal)}
-                  </td>
+        {/* Right: Donut + Table */}
+        <div className="flex flex-col gap-3 min-h-0">
+          {/* Donut */}
+          <div className="flex-1 min-h-0">
+            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Distribucion de Inspecciones</p>
+            <EChart option={donutOption} height="100%" />
+          </div>
+          {/* Table */}
+          <div className="shrink-0 max-h-[40%] overflow-y-auto">
+            <table className="w-full text-left">
+              <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="px-2 py-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Contratista</th>
+                  <th className="px-2 py-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-right">Insp.</th>
+                  <th className="px-2 py-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-right">Mal</th>
+                  <th className="px-2 py-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-right">Tasa</th>
+                  <th className="px-2 py-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-right">Multas</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {ranking.map((r, idx) => (
+                  <tr
+                    key={r.contratista}
+                    onClick={() => onRowClick(r.contratista)}
+                    className="border-b border-slate-50 hover:bg-slate-100 cursor-pointer transition-colors"
+                  >
+                    <td className="px-2 py-1.5 text-[11px] font-medium text-slate-700 truncate max-w-[130px]">
+                      <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: CONTRATISTA_COLORS[idx % CONTRATISTA_COLORS.length] }} />
+                      {r.contratista}
+                    </td>
+                    <td className="px-2 py-1.5 text-[11px] text-slate-600 text-right">{formatNumber(r.inspecciones)}</td>
+                    <td className="px-2 py-1.5 text-[11px] text-red-600 text-right">{formatNumber(r.mal_ejecutado)}</td>
+                    <td className="px-2 py-1.5 text-[11px] text-right font-semibold" style={{ color: r.tasa_mal >= 30 ? '#dc2626' : r.tasa_mal >= 15 ? '#d97706' : '#16a34a' }}>
+                      {pct(r.tasa_mal)}
+                    </td>
+                    <td className="px-2 py-1.5 text-[11px] text-amber-600 text-right">{formatNumber(r.multas)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </Slide>
