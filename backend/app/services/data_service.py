@@ -32,17 +32,35 @@ def _build_where(
     inspector: Optional[str] = None,
     estado: Optional[str] = None,
     comuna: Optional[str] = None,
+    contratista: Optional[str] = None,
+    resultado: Optional[str] = None,
 ) -> tuple[str, dict]:
     """Build WHERE clause and params from filters."""
     conditions = []
     params = {}
 
     if zona:
-        conditions.append("UPPER(zona) = UPPER(:zona)")
-        params["zona"] = zona
+        zona_vals = [v.strip() for v in zona.split(",") if v.strip()]
+        if len(zona_vals) == 1:
+            conditions.append("UPPER(zona) = UPPER(:zona)")
+            params["zona"] = zona_vals[0]
+        else:
+            placeholders = ", ".join(f":zona_{i}" for i in range(len(zona_vals)))
+            conditions.append(f"UPPER(zona) IN ({placeholders})")
+            for i, v in enumerate(zona_vals):
+                params[f"zona_{i}"] = v.upper()
     if base:
-        conditions.append("base = :base")
-        params["base"] = base
+        base_vals = [v.strip() for v in base.split(",") if v.strip()]
+        if len(base_vals) == 1:
+            conditions.append("base = :base")
+            params["base"] = base_vals[0]
+        else:
+            placeholders = ", ".join(f":base_{i}" for i in range(len(base_vals)))
+            conditions.append(f"base IN ({placeholders})")
+            for i, v in enumerate(base_vals):
+                params[f"base_{i}"] = v
+    else:
+        conditions.append("base LIKE '2025%%'")
     if fecha_desde:
         parsed_desde = _parse_date(fecha_desde)
         if parsed_desde:
@@ -70,11 +88,40 @@ def _build_where(
         conditions.append("inspector ILIKE :inspector")
         params["inspector"] = f"%{inspector}%"
     if estado:
-        conditions.append("estado_efectividad ILIKE :estado")
-        params["estado"] = f"%{estado}%"
+        est_vals = [v.strip() for v in estado.split(",") if v.strip()]
+        if len(est_vals) == 1:
+            conditions.append("estado_efectividad ILIKE :estado")
+            params["estado"] = f"%{est_vals[0]}%"
+        else:
+            or_parts = []
+            for i, v in enumerate(est_vals):
+                or_parts.append(f"estado_efectividad ILIKE :estado_{i}")
+                params[f"estado_{i}"] = f"%{v}%"
+            conditions.append(f"({' OR '.join(or_parts)})")
     if comuna:
         conditions.append("UPPER(comuna) = UPPER(:comuna)")
         params["comuna"] = comuna
+    if contratista:
+        cont_vals = [v.strip() for v in contratista.split(",") if v.strip()]
+        if len(cont_vals) == 1:
+            conditions.append("UPPER(contratista_enel) = UPPER(:contratista)")
+            params["contratista"] = cont_vals[0]
+        else:
+            placeholders = ", ".join(f":cont_{i}" for i in range(len(cont_vals)))
+            conditions.append(f"UPPER(contratista_enel) IN ({placeholders})")
+            for i, v in enumerate(cont_vals):
+                params[f"cont_{i}"] = v.upper()
+    if resultado:
+        res_vals = [v.strip() for v in resultado.split(",") if v.strip()]
+        if len(res_vals) == 1:
+            conditions.append("resultado_inspeccion ILIKE :resultado")
+            params["resultado"] = f"%{res_vals[0]}%"
+        else:
+            or_parts = []
+            for i, v in enumerate(res_vals):
+                or_parts.append(f"resultado_inspeccion ILIKE :resultado_{i}")
+                params[f"resultado_{i}"] = f"%{v}%"
+            conditions.append(f"({' OR '.join(or_parts)})")
 
     where = " AND ".join(conditions) if conditions else "1=1"
     return where, params
@@ -89,6 +136,8 @@ async def get_filtered_data(
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None,
     base: Optional[str] = None,
+    contratista: Optional[str] = None,
+    resultado: Optional[str] = None,
     mes: Optional[int] = None,
     anio: Optional[int] = None,
     page: int = 1,
@@ -99,7 +148,7 @@ async def get_filtered_data(
     where, params = _build_where(
         zona=zona, base=base, fecha_desde=fecha_desde, fecha_hasta=fecha_hasta,
         mes=mes, anio=anio, search=search, inspector=inspector, estado=estado,
-        comuna=comuna,
+        comuna=comuna, contratista=contratista, resultado=resultado,
     )
 
     # Validate sort column
@@ -126,7 +175,8 @@ async def get_filtered_data(
                TO_CHAR(fecha_inspeccion, 'YYYY-MM-DD') as fecha_inspeccion,
                inspector, estado_contratista, resultado_normalizacion,
                cumple_norma_cc, cliente_conforme, estado_empalme,
-               tipo_inspeccion, voltaje, mes, anio, link_formulario
+               tipo_inspeccion, voltaje, mes, anio, link_formulario,
+               contratista_enel, categoria_mal_ejecutado
         FROM nncc WHERE {where}
         ORDER BY {sort_by} {order_dir} NULLS LAST
         LIMIT :limit OFFSET :offset""",
@@ -425,13 +475,17 @@ async def get_stats(
 
 @cached(ttl_seconds=300)
 async def get_comunas() -> List[str]:
-    rows = await execute_query("SELECT DISTINCT comuna FROM nncc WHERE comuna IS NOT NULL ORDER BY comuna")
+    rows = await execute_query(
+        "SELECT DISTINCT comuna FROM nncc WHERE comuna IS NOT NULL ORDER BY comuna"
+    )
     return [r["comuna"] for r in rows]
 
 
 @cached(ttl_seconds=300)
 async def get_zonas() -> List[str]:
-    rows = await execute_query("SELECT DISTINCT zona FROM nncc WHERE zona IS NOT NULL ORDER BY zona")
+    rows = await execute_query(
+        "SELECT DISTINCT zona FROM nncc WHERE zona IS NOT NULL ORDER BY zona"
+    )
     return [r["zona"] for r in rows]
 
 
@@ -441,8 +495,7 @@ async def get_inspectors() -> List[Dict[str, Any]]:
         SELECT inspector, COUNT(*) as cantidad,
             COUNT(*) FILTER (WHERE estado_efectividad ILIKE '%%EFECTIVA%%'
                              AND estado_efectividad NOT ILIKE '%%NO EFECTIVA%%') as efectivas_insp
-        FROM nncc WHERE TRIM(COALESCE(inspector,'')) != ''
-        GROUP BY inspector ORDER BY cantidad DESC
+        FROM nncc WHERE TRIM(COALESCE(inspector,'')) != ''        GROUP BY inspector ORDER BY cantidad DESC
     """)
     return [
         {
@@ -456,7 +509,9 @@ async def get_inspectors() -> List[Dict[str, Any]]:
 
 @cached(ttl_seconds=300)
 async def get_bases() -> List[str]:
-    rows = await execute_query("SELECT DISTINCT base FROM nncc WHERE base IS NOT NULL ORDER BY base DESC")
+    rows = await execute_query(
+        "SELECT DISTINCT base FROM nncc WHERE base IS NOT NULL ORDER BY base DESC"
+    )
     return [r["base"] for r in rows]
 
 
@@ -468,7 +523,7 @@ async def get_periodos() -> Dict[str, Any]:
             ARRAY_AGG(DISTINCT anio ORDER BY anio) FILTER (WHERE anio IS NOT NULL) as anios,
             (SELECT mes FROM nncc WHERE mes IS NOT NULL AND anio IS NOT NULL ORDER BY anio DESC, mes DESC LIMIT 1) as ultimo_mes,
             (SELECT anio FROM nncc WHERE mes IS NOT NULL AND anio IS NOT NULL ORDER BY anio DESC, mes DESC LIMIT 1) as ultimo_anio
-        FROM nncc
+        FROM nncc WHERE 1=1
     """)
     if rows:
         return {

@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> List[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
+    # ODIS API (OCA)
+    OCA_EMAIL: str = ""
+    OCA_PASSWORD: str = ""
+    OCA_API_URL: str = "https://odisbk.com/api/v2.0"
+
     # Data paths
     DATA_DIR: str = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data")
 

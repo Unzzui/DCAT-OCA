@@ -3,20 +3,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Header } from '@/components/layout/Header'
-import { Card, Title, Text } from '@tremor/react'
-import {
-  Settings,
-  Save,
-  RotateCcw,
-  Check,
-  AlertTriangle,
-  Radio,
-  ClipboardCheck,
-  FileText,
-  SearchX,
-  Scissors,
-  Database,
-} from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { api } from '@/lib/api'
 
@@ -27,16 +13,19 @@ interface Setting {
   category: string
 }
 
-const categoryLabels: Record<string, { label: string; icon: React.ComponentType<{ size?: number; className?: string }> }> = {
-  telecomunicaciones: { label: 'Telecomunicaciones', icon: Radio },
-  nuevas_conexiones: { label: 'Nuevas Conexiones', icon: ClipboardCheck },
-  lecturas: { label: 'Lecturas', icon: FileText },
-  control_perdidas: { label: 'Control de Perdidas', icon: SearchX },
-  corte_reposicion: { label: 'Corte y Reposicion', icon: Scissors },
-  general: { label: 'General', icon: Database },
+const categoryLabels: Record<string, string> = {
+  telecomunicaciones: 'Telecomunicaciones',
+  nuevas_conexiones: 'Nuevas Conexiones',
+  lecturas: 'Lecturas',
+  control_perdidas: 'Control de Perdidas',
+  corte_reposicion: 'Corte y Reposicion',
+  general: 'General',
 }
 
 const categoryOrder = ['telecomunicaciones', 'nuevas_conexiones', 'lecturas', 'control_perdidas', 'corte_reposicion', 'general']
+
+// Tabs: fechas de envio + each settings category
+const TAB_FECHAS = 'fechas_envio'
 
 export default function ConfiguracionPage() {
   const router = useRouter()
@@ -47,8 +36,11 @@ export default function ConfiguracionPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [fechasEnvio, setFechasEnvio] = useState<Record<string, string>>({})
+  const [editedFechas, setEditedFechas] = useState<Record<string, string>>({})
+  const [nnccBases, setNnccBases] = useState<string[]>([])
+  const [activeTab, setActiveTab] = useState(TAB_FECHAS)
 
-  // Redirect if not admin
   useEffect(() => {
     if (user && user.role !== 'admin') {
       router.push('/dashboard')
@@ -59,28 +51,42 @@ export default function ConfiguracionPage() {
     try {
       const data = await api.get<Setting[]>('/api/v1/settings')
       setSettings(data)
-      // Initialize edited values
       const initial: Record<string, string> = {}
       data.forEach(s => { initial[s.key] = s.value })
       setEditedValues(initial)
-    } catch (err) {
-      console.error('Error fetching settings:', err)
+    } catch {
       setError('Error al cargar configuraciones')
     } finally {
       setLoading(false)
     }
   }, [])
 
-  useEffect(() => {
-    fetchSettings()
-  }, [fetchSettings])
+  useEffect(() => { fetchSettings() }, [fetchSettings])
+
+  const fetchFechasEnvio = useCallback(async () => {
+    try {
+      const [fechas, bases] = await Promise.all([
+        api.get<Record<string, string>>('/api/v1/settings/fechas-envio-base'),
+        api.get<string[]>('/api/v1/nuevas-conexiones/dashboard/bases'),
+      ])
+      setFechasEnvio(fechas)
+      setEditedFechas(fechas)
+      setNnccBases(bases)
+    } catch {
+      console.error('Error fetching fechas envio')
+    }
+  }, [])
+
+  useEffect(() => { fetchFechasEnvio() }, [fetchFechasEnvio])
 
   const handleValueChange = (key: string, value: string) => {
     setEditedValues(prev => ({ ...prev, [key]: value }))
   }
 
   const hasChanges = () => {
-    return settings.some(s => editedValues[s.key] !== s.value)
+    const settingsChanged = settings.some(s => editedValues[s.key] !== s.value)
+    const fechasChanged = nnccBases.some(b => (editedFechas[b] || '') !== (fechasEnvio[b] || ''))
+    return settingsChanged || fechasChanged
   }
 
   const handleSave = async () => {
@@ -89,7 +95,6 @@ export default function ConfiguracionPage() {
     setSuccess('')
 
     try {
-      // Get only changed settings
       const changedSettings: Record<string, string> = {}
       settings.forEach(s => {
         if (editedValues[s.key] !== s.value) {
@@ -97,15 +102,30 @@ export default function ConfiguracionPage() {
         }
       })
 
-      if (Object.keys(changedSettings).length === 0) {
+      const changedFechas: Record<string, string> = {}
+      nnccBases.forEach(b => {
+        if ((editedFechas[b] || '') !== (fechasEnvio[b] || '')) {
+          changedFechas[b] = editedFechas[b] || ''
+        }
+      })
+
+      if (Object.keys(changedSettings).length === 0 && Object.keys(changedFechas).length === 0) {
         setSuccess('No hay cambios para guardar')
         setTimeout(() => setSuccess(''), 3000)
         return
       }
 
-      await api.put('/api/v1/settings', { settings: changedSettings })
+      if (Object.keys(changedSettings).length > 0) {
+        await api.put('/api/v1/settings', { settings: changedSettings })
+        fetchSettings()
+      }
+
+      if (Object.keys(changedFechas).length > 0) {
+        await api.put('/api/v1/settings/fechas-envio-base', { fechas: changedFechas })
+        fetchFechasEnvio()
+      }
+
       setSuccess('Configuraciones guardadas exitosamente')
-      fetchSettings()
       setTimeout(() => setSuccess(''), 3000)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error al guardar'
@@ -143,9 +163,13 @@ export default function ConfiguracionPage() {
     settings: settings.filter(s => s.category === cat)
   })).filter(g => g.settings.length > 0)
 
-  if (user?.role !== 'admin') {
-    return null
-  }
+  // Build tabs list
+  const tabs = [
+    ...(nnccBases.length > 0 ? [{ key: TAB_FECHAS, label: 'Fechas de Envio' }] : []),
+    ...groupedSettings.map(g => ({ key: g.category, label: categoryLabels[g.category] || g.category })),
+  ]
+
+  if (user?.role !== 'admin') return null
 
   if (loading) {
     return (
@@ -165,14 +189,12 @@ export default function ConfiguracionPage() {
       <div className="p-6">
         {/* Messages */}
         {success && (
-          <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-md flex items-center gap-2">
-            <Check size={16} className="text-emerald-600" />
+          <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-md">
             <span className="text-sm text-emerald-700">{success}</span>
           </div>
         )}
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md flex items-center gap-2">
-            <AlertTriangle size={16} className="text-red-600" />
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
             <span className="text-sm text-red-700">{error}</span>
           </div>
         )}
@@ -182,76 +204,101 @@ export default function ConfiguracionPage() {
           <button
             onClick={handleReset}
             disabled={saving}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm text-gray-700 border rounded-md hover:bg-gray-50 disabled:opacity-50"
+            className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-md hover:bg-slate-50 disabled:opacity-50 transition-colors"
           >
-            <RotateCcw size={16} />
             Restaurar
           </button>
           <button
             onClick={handleSave}
             disabled={saving || !hasChanges()}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-oca-blue rounded-md hover:bg-oca-blue-dark disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium text-white bg-slate-800 rounded-md hover:bg-slate-700 disabled:opacity-40 transition-colors"
           >
-            <Save size={16} />
             {saving ? 'Guardando...' : 'Guardar Cambios'}
           </button>
         </div>
 
-        {/* Settings by category */}
-        <div className="space-y-6">
-          {groupedSettings.map(group => {
-            const catInfo = categoryLabels[group.category] || { label: group.category, icon: Settings }
-            const Icon = catInfo.icon
+        {/* Tabs + Content */}
+        <div className="bg-white rounded-lg border border-slate-200/60 shadow-sm">
+          {/* Tab bar */}
+          <div className="border-b border-slate-200/60 px-1">
+            <nav className="flex gap-0 overflow-x-auto">
+              {tabs.map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`px-4 py-3 text-[11px] font-medium uppercase tracking-wider whitespace-nowrap border-b-2 transition-colors ${
+                    activeTab === tab.key
+                      ? 'border-slate-800 text-slate-800'
+                      : 'border-transparent text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          </div>
 
-            return (
-              <Card key={group.category}>
-                <div className="flex items-center gap-2 mb-4">
-                  <Icon size={20} className="text-oca-blue" />
-                  <Title>{catInfo.label}</Title>
-                </div>
-
-                <div className="space-y-4">
-                  {group.settings.map(setting => (
-                    <div key={setting.key} className="flex items-start gap-4 p-3 bg-gray-50 rounded-lg">
-                      <div className="flex-1">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          {setting.description}
-                        </label>
-                        <Text className="text-xs text-gray-500 mb-2">{setting.key}</Text>
-                      </div>
-                      <div className="w-32">
-                        <input
-                          type="text"
-                          value={editedValues[setting.key] || ''}
-                          onChange={(e) => handleValueChange(setting.key, e.target.value)}
-                          className={`w-full px-3 py-2 text-sm text-right border rounded-md focus:outline-none focus:ring-2 focus:ring-oca-blue/20 focus:border-oca-blue ${
-                            editedValues[setting.key] !== setting.value
-                              ? 'border-amber-400 bg-amber-50'
-                              : 'border-gray-300'
-                          }`}
-                        />
-                      </div>
+          {/* Tab content */}
+          <div className="p-5">
+            {/* Fechas de Envio tab */}
+            {activeTab === TAB_FECHAS && nnccBases.length > 0 && (
+              <div>
+                <p className="text-[11px] text-slate-400 mb-5">
+                  Fecha en que se envio cada base de NNCC. Se usa para calcular los dias de ejecucion en el dashboard.
+                </p>
+                <div className="space-y-0 divide-y divide-slate-100">
+                  {nnccBases.map(base => (
+                    <div key={base} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                      <span className="text-sm text-slate-700">{base}</span>
+                      <input
+                        type="date"
+                        value={editedFechas[base] || ''}
+                        onChange={(e) => setEditedFechas(prev => ({ ...prev, [base]: e.target.value }))}
+                        className={`w-40 px-3 py-1.5 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-slate-300/50 focus:border-slate-400 transition-colors ${
+                          (editedFechas[base] || '') !== (fechasEnvio[base] || '')
+                            ? 'border-amber-400 bg-amber-50/50'
+                            : 'border-slate-200'
+                        }`}
+                      />
                     </div>
                   ))}
                 </div>
-              </Card>
-            )
-          })}
+              </div>
+            )}
+
+            {/* Settings category tabs */}
+            {groupedSettings.map(group => (
+              activeTab === group.category && (
+                <div key={group.category} className="space-y-0 divide-y divide-slate-100">
+                  {group.settings.map(setting => (
+                    <div key={setting.key} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                      <div>
+                        <p className="text-sm text-slate-700">{setting.description}</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">{setting.key}</p>
+                      </div>
+                      <input
+                        type="text"
+                        value={editedValues[setting.key] || ''}
+                        onChange={(e) => handleValueChange(setting.key, e.target.value)}
+                        className={`w-28 px-3 py-1.5 text-sm text-right border rounded-md focus:outline-none focus:ring-2 focus:ring-slate-300/50 focus:border-slate-400 transition-colors ${
+                          editedValues[setting.key] !== setting.value
+                            ? 'border-amber-400 bg-amber-50/50'
+                            : 'border-slate-200'
+                        }`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )
+            ))}
+          </div>
         </div>
 
-        {/* Info */}
-        <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
-          <div className="flex items-start gap-2">
-            <Settings size={16} className="text-blue-600 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-blue-800">Notas</p>
-              <ul className="text-xs text-blue-700 mt-1 space-y-1">
-                <li>Los valores de metas se expresan en porcentaje (%).</li>
-                <li>Los cambios se aplican inmediatamente despues de guardar.</li>
-                <li>Las configuraciones con borde amarillo tienen cambios sin guardar.</li>
-              </ul>
-            </div>
-          </div>
+        {/* Notes */}
+        <div className="mt-5 px-1">
+          <p className="text-[10px] text-slate-400">
+            Los valores de metas se expresan en porcentaje. Los cambios se aplican inmediatamente. Los campos con borde amarillo tienen cambios sin guardar.
+          </p>
         </div>
       </div>
     </div>

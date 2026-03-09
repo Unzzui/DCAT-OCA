@@ -6,11 +6,23 @@ interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>
 }
 
+interface CacheEntry<T> {
+  data: T
+  timestamp: number
+}
+
 class ApiClient {
   private baseUrl: string
+  private cache = new Map<string, CacheEntry<unknown>>()
+  private inflight = new Map<string, Promise<unknown>>()
+  private defaultTtl = 120_000 // 2 min cache
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl
+  }
+
+  clearCache() {
+    this.cache.clear()
   }
 
   private getHeaders(): HeadersInit {
@@ -65,8 +77,35 @@ class ApiClient {
     return response.json()
   }
 
-  async get<T>(endpoint: string, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
-    return this.request<T>(endpoint, { method: 'GET', params })
+  async get<T>(endpoint: string, params?: Record<string, string | number | boolean | undefined>, options?: { ttl?: number; noCache?: boolean }): Promise<T> {
+    const cacheKey = this.buildUrl(endpoint, params)
+    const ttl = options?.ttl ?? this.defaultTtl
+
+    // Return cached data if fresh
+    if (!options?.noCache) {
+      const cached = this.cache.get(cacheKey)
+      if (cached && Date.now() - cached.timestamp < ttl) {
+        return cached.data as T
+      }
+    }
+
+    // Deduplicate in-flight requests
+    const existing = this.inflight.get(cacheKey)
+    if (existing) return existing as Promise<T>
+
+    const promise = this.request<T>(endpoint, { method: 'GET', params })
+      .then((data) => {
+        this.cache.set(cacheKey, { data, timestamp: Date.now() })
+        this.inflight.delete(cacheKey)
+        return data
+      })
+      .catch((err) => {
+        this.inflight.delete(cacheKey)
+        throw err
+      })
+
+    this.inflight.set(cacheKey, promise)
+    return promise
   }
 
   async post<T>(endpoint: string, data?: unknown): Promise<T> {

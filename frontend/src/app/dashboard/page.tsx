@@ -1,37 +1,25 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { Header } from '@/components/layout/Header'
+import { EChart } from '@/components/ui/EChart'
+import { HeroKpi, KpiCard, ProgressKpi } from './nuevas-conexiones/components/KpiCard'
 import {
-  Card,
-  Title,
-  Text,
-  Flex,
-  BarChart,
-  DonutChart,
-  AreaChart,
-  ProgressBar,
-} from '@tremor/react'
-import {
-  ClipboardCheck,
-  FileText,
-  SearchX,
-  TrendingUp,
-  TrendingDown,
-  Calendar,
-  CheckCircle,
-  XCircle,
-  Clock,
-  BarChart3,
-  ArrowRight,
-  Radio,
-  Scissors,
-  AlertTriangle,
-  GitCompare,
-} from 'lucide-react'
+  CHART_COLORS,
+  TOOLTIP_STYLE,
+  GRID_STYLE,
+  AXIS_STYLE,
+  CATEGORY_AXIS,
+  BAR_RADIUS,
+  BAR_RADIUS_H,
+} from './nuevas-conexiones/chart-theme'
+import { ArrowRight, ArrowUpRight } from 'lucide-react'
 import { formatNumber } from '@/lib/utils'
 import { api } from '@/lib/api'
+
+/* ── types ─────────────────────────────────────────────── */
 
 interface DashboardSummary {
   nncc: {
@@ -50,66 +38,6 @@ interface DashboardSummary {
     ultima_actualizacion: string | null
     activo: boolean
   }
-  lecturas: {
-    total: number
-    inspeccionadas: number
-    pendientes: number
-    tasa_inspeccion: number
-    en_plazo: number
-    fuera_plazo: number
-    tasa_cumplimiento_plazo: number
-    dias_respuesta_promedio: number
-    por_origen: Record<string, number>
-    por_hallazgo: Array<{ hallazgo: string; cantidad: number }>
-    comparativas: {
-      inspeccion: { actual: number; anterior: number; diferencia: number }
-      cumplimiento_plazo: { actual: number; anterior: number; diferencia: number }
-    }
-    ultima_actualizacion: string | null
-    activo: boolean
-  }
-  teleco: {
-    total: number
-    aprobados: number
-    rechazados: number
-    tasa_aprobacion: number
-    total_postes: number
-    por_empresa: Array<{ empresa: string; cantidad: number; aprobados: number; tasa_aprobacion: number; postes: number }>
-    comparativas: {
-      aprobacion: { actual: number; anterior: number; diferencia: number }
-    }
-    ultima_actualizacion: string | null
-    activo: boolean
-  }
-  corte_reposicion: {
-    total: number
-    bien_ejecutados: number
-    no_ejecutados: number
-    tasa_calidad: number
-    con_multa: number
-    sin_multa: number
-    tasa_multa: number
-    factible_cortar: number
-    no_factible_cortar: number
-    por_zona: Array<{ zona: string; cantidad: number; bien_ejecutados: number; tasa_calidad: number }>
-    por_situacion_encontrada: Array<{ situacion: string; cantidad: number }>
-    por_mes: Array<{ periodo: string; total: number; bien_ejecutados: number; tasa_calidad: number }>
-    ultima_actualizacion: string | null
-    activo: boolean
-  }
-  control_perdidas: {
-    total_solicitadas: number
-    total_ejecutadas: number
-    pendientes: number
-    tasa_ejecucion: number
-    monofasico: { solicitadas: number; ejecutadas: number; tasa: number }
-    trifasico: { solicitadas: number; ejecutadas: number; tasa: number }
-    por_resultado: Array<{ resultado: string; cantidad: number }>
-    por_contratista: Array<{ contratista: string; cantidad: number; tasa_normalidad: number }>
-    anomalias: { modelo_no_corresponde: number; medidor_no_corresponde: number; requiere_normalizacion: number; perno_no_normalizado: number }
-    ultima_actualizacion: string | null
-    activo: boolean
-  }
   medidores_cruzados: {
     total: number
     por_zona: Record<string, number>
@@ -125,12 +53,32 @@ interface DashboardSummary {
     modulos_activos: number
     modulos_pendientes: number
   }
+  // Módulos desactivados — mantenemos la interfaz por compatibilidad con backend
+  lecturas: Record<string, unknown>
+  teleco: Record<string, unknown>
+  corte_reposicion: Record<string, unknown>
+  control_perdidas: Record<string, unknown>
 }
 
-const META_EFECTIVIDAD = 95
-const META_CUMPLIMIENTO = 90
-const META_APROBACION = 50
-const META_CALIDAD_CORTE = 80
+/* ── helpers ───────────────────────────────────────────── */
+
+const pct = (v: number) => `${v.toFixed(1)}%`
+
+function ChartCard({ children, title, sub, className = '' }: { children: React.ReactNode; title?: string; sub?: string; className?: string }) {
+  return (
+    <div className={`bg-white rounded-lg border border-slate-200/60 shadow-sm px-4 py-3 ${className}`}>
+      {title && (
+        <div className="mb-2">
+          <h3 className="text-[11px] font-semibold text-slate-700 uppercase tracking-wide">{title}</h3>
+          {sub && <p className="text-[10px] text-slate-400 mt-0.5">{sub}</p>}
+        </div>
+      )}
+      {children}
+    </div>
+  )
+}
+
+/* ── page ──────────────────────────────────────────────── */
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -152,752 +100,257 @@ export default function DashboardPage() {
     fetchData()
   }, [fetchData])
 
-  // Chart data
-  const nnccZonaData = data ? Object.entries(data.nncc.por_zona).map(([name, value]) => ({
-    name,
-    value: value as number
-  })) : []
+  /* ── chart options ─────────────────── */
 
-  const nnccMensualData = data?.nncc.por_mes.slice(-6).map(m => ({
-    mes: m.mes,
-    Cantidad: m.cantidad,
-    Efectividad: m.efectividad
-  })) || []
+  const tendenciaOption = useMemo(() => {
+    if (!data) return {}
+    const meses = data.nncc.por_mes.slice(-6)
+    return {
+      tooltip: { ...TOOLTIP_STYLE, trigger: 'axis' as const },
+      grid: { ...GRID_STYLE, bottom: 24 },
+      xAxis: { type: 'category' as const, data: meses.map(m => m.mes), ...CATEGORY_AXIS },
+      yAxis: [
+        { type: 'value' as const, ...AXIS_STYLE, name: 'Cantidad', nameTextStyle: { fontSize: 10, color: '#94a3b8' } },
+        { type: 'value' as const, ...AXIS_STYLE, name: 'Efect. %', nameTextStyle: { fontSize: 10, color: '#94a3b8' }, min: 0, max: 100, splitLine: { show: false } },
+      ],
+      series: [
+        {
+          type: 'bar' as const,
+          name: 'Inspecciones',
+          data: meses.map(m => m.cantidad),
+          barMaxWidth: 24,
+          itemStyle: { color: CHART_COLORS.primary, borderRadius: BAR_RADIUS },
+          yAxisIndex: 0,
+        },
+        {
+          type: 'line' as const,
+          name: 'Efectividad',
+          data: meses.map(m => m.efectividad),
+          smooth: true,
+          lineStyle: { color: CHART_COLORS.success, width: 2 },
+          itemStyle: { color: CHART_COLORS.success },
+          symbol: 'circle',
+          symbolSize: 6,
+          yAxisIndex: 1,
+        },
+      ],
+    }
+  }, [data])
 
-  const lecturasOrigenData = data ? Object.entries(data.lecturas.por_origen).map(([name, value]) => ({
-    name,
-    value: value as number
-  })) : []
+  const zonaOption = useMemo(() => {
+    if (!data) return {}
+    const zonas = Object.entries(data.nncc.por_zona)
+      .sort((a, b) => b[1] - a[1])
+    return {
+      tooltip: { ...TOOLTIP_STYLE, trigger: 'axis' as const },
+      grid: { left: 8, right: 20, bottom: 8, top: 8, containLabel: true },
+      xAxis: { type: 'value' as const, ...AXIS_STYLE },
+      yAxis: { type: 'category' as const, data: zonas.map(z => z[0]), ...CATEGORY_AXIS, inverse: true },
+      series: [{
+        type: 'bar' as const,
+        barMaxWidth: 18,
+        data: zonas.map(z => ({
+          value: z[1],
+          itemStyle: { color: CHART_COLORS.primary, borderRadius: BAR_RADIUS_H },
+        })),
+        label: { show: true, position: 'right' as const, fontSize: 10, color: '#64748b', formatter: (p: { value: number }) => formatNumber(p.value) },
+      }],
+    }
+  }, [data])
 
-  const lecturasHallazgoData = data?.lecturas.por_hallazgo.slice(0, 5).map(h => ({
-    name: h.hallazgo,
-    value: h.cantidad
-  })) || []
+  const medCruzadosOption = useMemo(() => {
+    if (!data?.medidores_cruzados?.activo) return {}
+    const evo = data.medidores_cruzados.evolucion_mensual.slice(-6)
+    if (!evo.length) return {}
+    return {
+      tooltip: { ...TOOLTIP_STYLE, trigger: 'axis' as const },
+      grid: { ...GRID_STYLE, bottom: 24 },
+      xAxis: { type: 'category' as const, data: evo.map(e => e.mes), ...CATEGORY_AXIS },
+      yAxis: { type: 'value' as const, ...AXIS_STYLE },
+      series: [
+        {
+          type: 'bar' as const,
+          name: 'Total',
+          data: evo.map(e => e.total),
+          barMaxWidth: 20,
+          itemStyle: { color: CHART_COLORS.muted, borderRadius: BAR_RADIUS },
+        },
+        {
+          type: 'bar' as const,
+          name: 'Bien Ejec.',
+          data: evo.map(e => e.bien_ejecutados),
+          barMaxWidth: 20,
+          itemStyle: { color: CHART_COLORS.success, borderRadius: BAR_RADIUS },
+        },
+      ],
+    }
+  }, [data])
+
+  /* ── derived values ────────────────── */
+
+  const nncc = data?.nncc
+  const mc = data?.medidores_cruzados
+  const tasaMal = nncc && nncc.total > 0 ? (nncc.mal_ejecutados / nncc.total) * 100 : 0
+  const tasaMulta = nncc && nncc.total > 0 ? (nncc.con_multa / nncc.total) * 100 : 0
+  const mcBien = mc?.por_resultado?.['TRABAJO BIEN EJECUTADO'] || 0
+  const mcMal = mc?.por_resultado?.['TRABAJO MAL EJECUTADO'] || 0
+  const mcTasaBien = mc && mc.total > 0 ? (mcBien / mc.total) * 100 : 0
+
+  /* ── render ────────────────────────── */
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-2 border-oca-blue border-t-transparent mx-auto"></div>
-          <p className="mt-3 text-sm text-gray-500">Cargando datos...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-oca-blue border-t-transparent mx-auto" />
+          <p className="mt-3 text-[11px] text-slate-400">Cargando dashboard...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header
-        title="Dashboard"
-        subtitle="Vista general de todos los servicios"
-      />
+    <div className="min-h-screen bg-slate-50">
+      <Header title="Dashboard" subtitle="Panel de Control — Nuevas Conexiones" />
 
-      <div className="p-6">
-        {/* Tarjetas de Modulos */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
-          {/* NNCC Card */}
-          <Card
-            className="cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02]"
+      <div className="p-5 space-y-4">
+
+        {/* ── Branding strip ─────────────────────────── */}
+        <div className="bg-white rounded-lg border border-slate-200/60 shadow-sm px-5 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Image src="/logo-enel.png" alt="Enel" width={90} height={33} className="h-7 w-auto opacity-90" />
+            <div className="h-6 w-px bg-slate-200" />
+            <div>
+              <h2 className="text-sm font-semibold text-slate-800">Fiscalización de Nuevas Conexiones</h2>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                {nncc?.ultima_actualizacion ? `Última actualización: ${nncc.ultima_actualizacion}` : 'OCA Global — Calidad e Inspección'}
+              </p>
+            </div>
+          </div>
+          <button
             onClick={() => router.push('/dashboard/nuevas-conexiones')}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-oca-blue hover:bg-oca-blue-lighter rounded-md transition-colors"
           >
-            <div>
-              <Text className="text-gray-500">Informe NNCC</Text>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{formatNumber(data?.nncc.total || 0)}</p>
-            </div>
-            <div className="mt-4 space-y-2">
-              <Flex justifyContent="between">
-                <span className="text-xs text-gray-500">Efectivas</span>
-                <span className="text-xs font-medium text-emerald-600">{formatNumber(data?.nncc.efectivas || 0)}</span>
-              </Flex>
-              <Flex justifyContent="between">
-                <span className="text-xs text-gray-500">No Efectivas</span>
-                <span className="text-xs font-medium text-red-600">{formatNumber(data?.nncc.no_efectivas || 0)}</span>
-              </Flex>
-            </div>
-            {data?.nncc.comparativas?.efectividad && data.nncc.comparativas.efectividad.diferencia !== 0 && (
-              <Flex className="mt-3 pt-3 border-t" justifyContent="between" alignItems="center">
-                <div className={`flex items-center gap-1 ${
-                  data.nncc.comparativas.efectividad.diferencia > 0 ? 'text-emerald-600' : 'text-rose-600'
-                }`}>
-                  {data.nncc.comparativas.efectividad.diferencia > 0 ? (
-                    <TrendingUp size={14} />
-                  ) : (
-                    <TrendingDown size={14} />
-                  )}
-                  <span className="text-xs font-medium">
-                    {data.nncc.comparativas.efectividad.diferencia > 0 ? '+' : ''}
-                    {data.nncc.comparativas.efectividad.diferencia}%
-                  </span>
-                </div>
-                <span className="text-xs text-gray-400">vs anterior</span>
-              </Flex>
-            )}
-            {data?.nncc.ultima_actualizacion && (
-              <Flex className="mt-2" alignItems="center" justifyContent="end">
-                <Calendar size={12} className="text-gray-400 mr-1" />
-                <span className="text-[10px] text-gray-400">{data.nncc.ultima_actualizacion}</span>
-              </Flex>
-            )}
-          </Card>
-
-          {/* Medidores Cruzados Card */}
-          <Card
-            className={data?.medidores_cruzados?.activo ? "cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02]" : "opacity-60"}
-            onClick={() => data?.medidores_cruzados?.activo && router.push('/dashboard/nuevas-conexiones/medidores-cruzados')}
-          >
-            <div>
-              <Text className="text-gray-500">Med. Cruzados</Text>
-              <p className="text-2xl font-bold text-gray-900 mt-1">
-                {data?.medidores_cruzados?.activo ? formatNumber(data?.medidores_cruzados.total || 0) : '-'}
-              </p>
-            </div>
-            {data?.medidores_cruzados?.activo ? (
-              <>
-                <div className="mt-4 space-y-2">
-                  <Flex justifyContent="between">
-                    <span className="text-xs text-gray-500">Bien Ejec.</span>
-                    <span className="text-xs font-medium text-emerald-600">{formatNumber(data?.medidores_cruzados.por_resultado?.['TRABAJO BIEN EJECUTADO'] || 0)}</span>
-                  </Flex>
-                  <Flex justifyContent="between">
-                    <span className="text-xs text-gray-500">Mal Ejec.</span>
-                    <span className="text-xs font-medium text-red-600">{formatNumber(data?.medidores_cruzados.por_resultado?.['TRABAJO MAL EJECUTADO'] || 0)}</span>
-                  </Flex>
-                </div>
-                {data?.medidores_cruzados.ultima_actualizacion && (
-                  <Flex className="mt-2" alignItems="center" justifyContent="end">
-                    <Calendar size={12} className="text-gray-400 mr-1" />
-                    <span className="text-[10px] text-gray-400">{data.medidores_cruzados.ultima_actualizacion}</span>
-                  </Flex>
-                )}
-              </>
-            ) : (
-              <div className="mt-4">
-                <Text className="text-gray-400 text-sm">Sin datos</Text>
-              </div>
-            )}
-          </Card>
-
-          {/* Lecturas Card */}
-          <Card
-            className="cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02]"
-            onClick={() => router.push('/dashboard/lecturas')}
-          >
-            <div>
-              <Text className="text-gray-500">Lecturas</Text>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{formatNumber(data?.lecturas.total || 0)}</p>
-            </div>
-            <div className="mt-4 space-y-2">
-              <Flex justifyContent="between">
-                <span className="text-xs text-gray-500">Inspeccionadas</span>
-                <span className="text-xs font-medium text-emerald-600">{formatNumber(data?.lecturas.inspeccionadas || 0)}</span>
-              </Flex>
-              <Flex justifyContent="between">
-                <span className="text-xs text-gray-500">Pendientes</span>
-                <span className="text-xs font-medium text-amber-600">{formatNumber(data?.lecturas.pendientes || 0)}</span>
-              </Flex>
-            </div>
-            {data?.lecturas.comparativas?.cumplimiento_plazo && data.lecturas.comparativas.cumplimiento_plazo.diferencia !== 0 && (
-              <Flex className="mt-3 pt-3 border-t" justifyContent="between" alignItems="center">
-                <div className={`flex items-center gap-1 ${
-                  data.lecturas.comparativas.cumplimiento_plazo.diferencia > 0 ? 'text-emerald-600' : 'text-rose-600'
-                }`}>
-                  {data.lecturas.comparativas.cumplimiento_plazo.diferencia > 0 ? (
-                    <TrendingUp size={14} />
-                  ) : (
-                    <TrendingDown size={14} />
-                  )}
-                  <span className="text-xs font-medium">
-                    {data.lecturas.comparativas.cumplimiento_plazo.diferencia > 0 ? '+' : ''}
-                    {data.lecturas.comparativas.cumplimiento_plazo.diferencia}%
-                  </span>
-                </div>
-                <span className="text-xs text-gray-400">vs anterior</span>
-              </Flex>
-            )}
-            {data?.lecturas.ultima_actualizacion && (
-              <Flex className="mt-2" alignItems="center" justifyContent="end">
-                <Calendar size={12} className="text-gray-400 mr-1" />
-                <span className="text-[10px] text-gray-400">{data.lecturas.ultima_actualizacion}</span>
-              </Flex>
-            )}
-          </Card>
-
-          {/* Teleco Card */}
-          <Card
-            className="cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02]"
-            onClick={() => router.push('/dashboard/telecomunicaciones')}
-          >
-            <div>
-              <Text className="text-gray-500">Telecom</Text>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{formatNumber(data?.teleco.total || 0)}</p>
-            </div>
-            <div className="mt-4 space-y-2">
-              <Flex justifyContent="between">
-                <span className="text-xs text-gray-500">Aprobados</span>
-                <span className="text-xs font-medium text-emerald-600">{formatNumber(data?.teleco.aprobados || 0)}</span>
-              </Flex>
-              <Flex justifyContent="between">
-                <span className="text-xs text-gray-500">Rechazados</span>
-                <span className="text-xs font-medium text-red-600">{formatNumber(data?.teleco.rechazados || 0)}</span>
-              </Flex>
-            </div>
-            {data?.teleco.comparativas?.aprobacion && data.teleco.comparativas.aprobacion.diferencia !== 0 && (
-              <Flex className="mt-3 pt-3 border-t" justifyContent="between" alignItems="center">
-                <div className={`flex items-center gap-1 ${
-                  data.teleco.comparativas.aprobacion.diferencia > 0 ? 'text-emerald-600' : 'text-rose-600'
-                }`}>
-                  {data.teleco.comparativas.aprobacion.diferencia > 0 ? (
-                    <TrendingUp size={14} />
-                  ) : (
-                    <TrendingDown size={14} />
-                  )}
-                  <span className="text-xs font-medium">
-                    {data.teleco.comparativas.aprobacion.diferencia > 0 ? '+' : ''}
-                    {data.teleco.comparativas.aprobacion.diferencia}%
-                  </span>
-                </div>
-                <span className="text-xs text-gray-400">vs anterior</span>
-              </Flex>
-            )}
-            {data?.teleco.ultima_actualizacion && (
-              <Flex className="mt-2" alignItems="center" justifyContent="end">
-                <Calendar size={12} className="text-gray-400 mr-1" />
-                <span className="text-[10px] text-gray-400">{data.teleco.ultima_actualizacion}</span>
-              </Flex>
-            )}
-          </Card>
-
-          {/* Corte y Reposicion Card */}
-          <Card
-            className={data?.corte_reposicion.activo ? "cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02]" : "opacity-60"}
-            onClick={() => data?.corte_reposicion.activo && router.push('/dashboard/corte-reposicion')}
-          >
-            <div>
-              <Text className="text-gray-500">Corte y Repo.</Text>
-              <p className="text-2xl font-bold text-gray-900 mt-1">
-                {data?.corte_reposicion.activo ? formatNumber(data?.corte_reposicion.total || 0) : '-'}
-              </p>
-            </div>
-            {data?.corte_reposicion.activo ? (
-              <>
-                <div className="mt-4 space-y-2">
-                  <Flex justifyContent="between">
-                    <span className="text-xs text-gray-500">Bien Ejecutados</span>
-                    <span className="text-xs font-medium text-emerald-600">{formatNumber(data?.corte_reposicion.bien_ejecutados || 0)}</span>
-                  </Flex>
-                  <Flex justifyContent="between">
-                    <span className="text-xs text-gray-500">Con Multa</span>
-                    <span className="text-xs font-medium text-amber-600">{formatNumber(data?.corte_reposicion.con_multa || 0)}</span>
-                  </Flex>
-                </div>
-                {data?.corte_reposicion.ultima_actualizacion && (
-                  <Flex className="mt-2" alignItems="center" justifyContent="end">
-                    <Calendar size={12} className="text-gray-400 mr-1" />
-                    <span className="text-[10px] text-gray-400">{data.corte_reposicion.ultima_actualizacion}</span>
-                  </Flex>
-                )}
-              </>
-            ) : (
-              <div className="mt-4">
-                <Text className="text-gray-400 text-sm">Sin datos</Text>
-              </div>
-            )}
-          </Card>
-
-          {/* Control Perdidas Card */}
-          <Card
-            className={data?.control_perdidas.activo ? "cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02]" : "opacity-60"}
-            onClick={() => data?.control_perdidas.activo && router.push('/dashboard/control-perdidas')}
-          >
-            <div>
-              <Text className="text-gray-500">Ctrl. Perdidas</Text>
-              <p className="text-2xl font-bold text-gray-900 mt-1">
-                {data?.control_perdidas.activo ? formatNumber(data?.control_perdidas.total_ejecutadas || 0) : '-'}
-              </p>
-            </div>
-            {data?.control_perdidas.activo ? (
-              <>
-                <div className="mt-4 space-y-2">
-                  <Flex justifyContent="between">
-                    <span className="text-xs text-gray-500">Monofásico</span>
-                    <span className="text-xs font-medium text-blue-600">{formatNumber(data?.control_perdidas.monofasico?.ejecutadas || 0)}</span>
-                  </Flex>
-                  <Flex justifyContent="between">
-                    <span className="text-xs text-gray-500">Trifásico</span>
-                    <span className="text-xs font-medium text-purple-600">{formatNumber(data?.control_perdidas.trifasico?.ejecutadas || 0)}</span>
-                  </Flex>
-                </div>
-                {data?.control_perdidas.ultima_actualizacion && (
-                  <Flex className="mt-2" alignItems="center" justifyContent="end">
-                    <Calendar size={12} className="text-gray-400 mr-1" />
-                    <span className="text-[10px] text-gray-400">{data.control_perdidas.ultima_actualizacion}</span>
-                  </Flex>
-                )}
-              </>
-            ) : (
-              <div className="mt-4">
-                <Text className="text-gray-400 text-sm">Sin datos</Text>
-              </div>
-            )}
-          </Card>
+            Ir al Informe <ArrowUpRight size={13} />
+          </button>
         </div>
 
-        {/* NNCC Section */}
-        <div className="mb-6">
-          <Flex className="mb-4" alignItems="center" justifyContent="between">
-            <div className="flex items-center gap-2">
-              <ClipboardCheck size={20} className="text-blue-600" />
-              <Title>Informe NNCC</Title>
-            </div>
-            <button
-              onClick={() => router.push('/dashboard/nuevas-conexiones')}
-              className="text-sm text-oca-blue hover:text-oca-blue-dark flex items-center gap-1"
-            >
-              Ver detalle <ArrowRight size={14} />
-            </button>
-          </Flex>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* NNCC KPIs */}
-            <Card>
-              <Title>Resumen NNCC</Title>
-              <div className="mt-4 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="text-center p-3 bg-emerald-50 rounded-lg">
-                    <CheckCircle size={20} className="text-emerald-500 mx-auto mb-1" />
-                    <p className="text-xl font-bold text-emerald-600">{formatNumber(data?.nncc.efectivas || 0)}</p>
-                    <p className="text-xs text-gray-600">Efectivas</p>
-                  </div>
-                  <div className="text-center p-3 bg-red-50 rounded-lg">
-                    <XCircle size={20} className="text-red-500 mx-auto mb-1" />
-                    <p className="text-xl font-bold text-red-600">{formatNumber(data?.nncc.no_efectivas || 0)}</p>
-                    <p className="text-xs text-gray-600">No Efectivas</p>
-                  </div>
-                </div>
-                <div>
-                  <Flex justifyContent="between" className="mb-1">
-                    <Text className="text-sm">Efectividad</Text>
-                    <Text className="text-sm font-medium">{data?.nncc.tasa_efectividad || 0}%</Text>
-                  </Flex>
-                  <ProgressBar
-                    value={data?.nncc.tasa_efectividad || 0}
-                    color={data && data.nncc.tasa_efectividad >= META_EFECTIVIDAD ? 'emerald' : 'amber'}
-                  />
-                </div>
-                <div className="pt-3 border-t">
-                  <Flex justifyContent="between">
-                    <Text className="text-sm text-gray-500">Con Multa</Text>
-                    <Text className="text-sm font-medium text-red-600">{formatNumber(data?.nncc.con_multa || 0)}</Text>
-                  </Flex>
-                </div>
-              </div>
-            </Card>
-
-            {/* NNCC Tendencia */}
-            <Card>
-              <Title>Tendencia Mensual</Title>
-              <Text className="text-gray-500">Ultimos 6 meses</Text>
-              <AreaChart
-                className="mt-4 h-44"
-                data={nnccMensualData}
-                index="mes"
-                categories={['Cantidad']}
-                colors={['blue']}
-                valueFormatter={(v) => formatNumber(v)}
-                showAnimation
-              />
-            </Card>
-
-            {/* NNCC Por Zona */}
-            <Card>
-              <Title>Por Zona</Title>
-              <DonutChart
-                className="mt-4 h-32"
-                data={nnccZonaData}
-                category="value"
-                index="name"
-                colors={['blue', 'cyan', 'indigo', 'slate']}
-                valueFormatter={(v) => formatNumber(v)}
-                showAnimation
-              />
-              <div className="mt-3 space-y-1">
-                {nnccZonaData.slice(0, 4).map(z => (
-                  <Flex key={z.name} justifyContent="between">
-                    <Text className="text-xs">{z.name}</Text>
-                    <Text className="text-xs font-medium">{formatNumber(z.value)}</Text>
-                  </Flex>
-                ))}
-              </div>
-            </Card>
-          </div>
+        {/* ── KPI strip — NNCC ───────────────────────── */}
+        <div className="bg-white rounded-lg border border-slate-200/60 shadow-sm grid grid-cols-2 lg:grid-cols-5 divide-x divide-slate-100">
+          <HeroKpi
+            label="Total Inspecciones"
+            value={nncc?.total || 0}
+            subtitle={nncc?.comparativas?.efectividad?.diferencia !== 0
+              ? `${(nncc?.comparativas?.efectividad?.diferencia || 0) > 0 ? '+' : ''}${nncc?.comparativas?.efectividad?.diferencia || 0}% vs anterior`
+              : undefined}
+          />
+          <ProgressKpi
+            label="Efectividad"
+            value={nncc?.tasa_efectividad || 0}
+            displayValue={pct(nncc?.tasa_efectividad || 0)}
+            thresholds={{ good: 95, warning: 85 }}
+          />
+          <KpiCard
+            label="Mal Ejecutados"
+            value={nncc?.mal_ejecutados || 0}
+            subtitle={`Tasa: ${pct(tasaMal)}`}
+            status={tasaMal > 15 ? 'bad' : 'neutral'}
+          />
+          <KpiCard
+            label="Con Multa"
+            value={nncc?.con_multa || 0}
+            subtitle={`Tasa: ${pct(tasaMulta)}`}
+            status={(nncc?.con_multa || 0) > 0 ? 'bad' : 'neutral'}
+          />
+          <KpiCard
+            label="Bien Ejecutados"
+            value={nncc?.bien_ejecutados || 0}
+            status="good"
+          />
         </div>
 
-        {/* Lecturas Section */}
-        <div className="mb-6">
-          <Flex className="mb-4" alignItems="center" justifyContent="between">
-            <div className="flex items-center gap-2">
-              <FileText size={20} className="text-violet-600" />
-              <Title>Lecturas</Title>
-            </div>
-            <button
-              onClick={() => router.push('/dashboard/lecturas')}
-              className="text-sm text-oca-blue hover:text-oca-blue-dark flex items-center gap-1"
-            >
-              Ver detalle <ArrowRight size={14} />
-            </button>
-          </Flex>
+        {/* ── Charts row ─────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <ChartCard title="Tendencia Mensual" sub="Inspecciones y efectividad — últimos 6 meses" className="lg:col-span-2">
+            <EChart option={tendenciaOption} height="220px" />
+          </ChartCard>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Lecturas KPIs */}
-            <Card>
-              <Title>Resumen Lecturas</Title>
-              <div className="mt-4 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="text-center p-3 bg-emerald-50 rounded-lg">
-                    <CheckCircle size={20} className="text-emerald-500 mx-auto mb-1" />
-                    <p className="text-xl font-bold text-emerald-600">{formatNumber(data?.lecturas.inspeccionadas || 0)}</p>
-                    <p className="text-xs text-gray-600">Inspeccionadas</p>
-                  </div>
-                  <div className="text-center p-3 bg-amber-50 rounded-lg">
-                    <Clock size={20} className="text-amber-500 mx-auto mb-1" />
-                    <p className="text-xl font-bold text-amber-600">{formatNumber(data?.lecturas.pendientes || 0)}</p>
-                    <p className="text-xs text-gray-600">Pendientes</p>
-                  </div>
-                </div>
-                <div>
-                  <Flex justifyContent="between" className="mb-1">
-                    <Text className="text-sm">Cumplimiento Plazo</Text>
-                    <Text className="text-sm font-medium">{data?.lecturas.tasa_cumplimiento_plazo || 0}%</Text>
-                  </Flex>
-                  <ProgressBar
-                    value={data?.lecturas.tasa_cumplimiento_plazo || 0}
-                    color={data && data.lecturas.tasa_cumplimiento_plazo >= META_CUMPLIMIENTO ? 'emerald' : 'amber'}
-                  />
-                </div>
-                <div className="pt-3 border-t">
-                  <Flex justifyContent="between">
-                    <Text className="text-sm text-gray-500">En Plazo</Text>
-                    <Text className="text-sm font-medium text-emerald-600">{formatNumber(data?.lecturas.en_plazo || 0)}</Text>
-                  </Flex>
-                  <Flex justifyContent="between" className="mt-1">
-                    <Text className="text-sm text-gray-500">Fuera de Plazo</Text>
-                    <Text className="text-sm font-medium text-red-600">{formatNumber(data?.lecturas.fuera_plazo || 0)}</Text>
-                  </Flex>
-                  <Flex justifyContent="between" className="mt-1">
-                    <Text className="text-sm text-gray-500">Dias Resp. Prom.</Text>
-                    <Text className="text-sm font-medium">{data?.lecturas.dias_respuesta_promedio || 0} dias</Text>
-                  </Flex>
-                </div>
-              </div>
-            </Card>
-
-            {/* Lecturas Por Origen */}
-            <Card>
-              <Title>Por Origen</Title>
-              <DonutChart
-                className="mt-4 h-32"
-                data={lecturasOrigenData}
-                category="value"
-                index="name"
-                colors={['blue', 'amber', 'violet']}
-                valueFormatter={(v) => formatNumber(v)}
-                showAnimation
-              />
-              <div className="mt-3 space-y-1">
-                {lecturasOrigenData.map(o => (
-                  <Flex key={o.name} justifyContent="between">
-                    <Text className="text-xs">{o.name}</Text>
-                    <Text className="text-xs font-medium">{formatNumber(o.value)}</Text>
-                  </Flex>
-                ))}
-              </div>
-            </Card>
-
-            {/* Lecturas Top Hallazgos */}
-            <Card>
-              <Title>Top Hallazgos</Title>
-              <Text className="text-gray-500">5 mas frecuentes</Text>
-              <BarChart
-                className="mt-4 h-40"
-                data={lecturasHallazgoData}
-                index="name"
-                categories={['value']}
-                colors={['violet']}
-                valueFormatter={(v) => formatNumber(v)}
-                layout="vertical"
-                yAxisWidth={140}
-                showAnimation
-              />
-            </Card>
-          </div>
+          <ChartCard title="Inspecciones por Zona">
+            <EChart option={zonaOption} height="220px" />
+          </ChartCard>
         </div>
 
-        {/* Teleco Section */}
-        <div className="mb-6">
-          <Flex className="mb-4" alignItems="center" justifyContent="between">
-            <div className="flex items-center gap-2">
-              <Radio size={20} className="text-amber-600" />
-              <Title>Telecomunicaciones</Title>
-            </div>
-            <button
-              onClick={() => router.push('/dashboard/telecomunicaciones')}
-              className="text-sm text-oca-blue hover:text-oca-blue-dark flex items-center gap-1"
-            >
-              Ver detalle <ArrowRight size={14} />
-            </button>
-          </Flex>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Teleco KPIs */}
-            <Card>
-              <Title>Resumen Teleco</Title>
-              <div className="mt-4 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="text-center p-3 bg-emerald-50 rounded-lg">
-                    <CheckCircle size={20} className="text-emerald-500 mx-auto mb-1" />
-                    <p className="text-xl font-bold text-emerald-600">{formatNumber(data?.teleco.aprobados || 0)}</p>
-                    <p className="text-xs text-gray-600">Aprobados</p>
-                  </div>
-                  <div className="text-center p-3 bg-red-50 rounded-lg">
-                    <XCircle size={20} className="text-red-500 mx-auto mb-1" />
-                    <p className="text-xl font-bold text-red-600">{formatNumber(data?.teleco.rechazados || 0)}</p>
-                    <p className="text-xs text-gray-600">Rechazados</p>
-                  </div>
-                </div>
-                <div>
-                  <Flex justifyContent="between" className="mb-1">
-                    <Text className="text-sm">Tasa Aprobacion</Text>
-                    <Text className="text-sm font-medium">{data?.teleco.tasa_aprobacion || 0}%</Text>
-                  </Flex>
-                  <ProgressBar
-                    value={data?.teleco.tasa_aprobacion || 0}
-                    color={data && data.teleco.tasa_aprobacion >= META_APROBACION ? 'emerald' : 'amber'}
-                  />
-                </div>
-                <div className="pt-3 border-t">
-                  <Flex justifyContent="between">
-                    <Text className="text-sm text-gray-500">Total Postes</Text>
-                    <Text className="text-sm font-medium text-blue-600">{formatNumber(data?.teleco.total_postes || 0)}</Text>
-                  </Flex>
-                </div>
-              </div>
-            </Card>
-
-            {/* Teleco Por Empresa */}
-            <Card className="lg:col-span-2">
-              <Title>Por Empresa</Title>
-              <Text className="text-gray-500">Principales solicitantes</Text>
-              <BarChart
-                className="mt-4 h-40"
-                data={data?.teleco.por_empresa.slice(0, 5).map(e => ({
-                  name: e.empresa,
-                  Casos: e.cantidad,
-                  Aprobados: e.aprobados
-                })) || []}
-                index="name"
-                categories={['Casos', 'Aprobados']}
-                colors={['amber', 'emerald']}
-                valueFormatter={(v) => formatNumber(v)}
-                showAnimation
-              />
-            </Card>
-          </div>
-        </div>
-
-        {/* Corte y Reposicion Section - Solo si está activo */}
-        {data?.corte_reposicion.activo && (
-          <div className="mb-6">
-            <Flex className="mb-4" alignItems="center" justifyContent="between">
-              <div className="flex items-center gap-2">
-                <Scissors size={20} className="text-rose-600" />
-                <Title>Corte y Reposicion</Title>
-              </div>
+        {/* ── Medidores Cruzados section ─────────────── */}
+        {mc?.activo && (
+          <>
+            <div className="flex items-center justify-between pt-2">
+              <h3 className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Medidores Cruzados</h3>
               <button
-                onClick={() => router.push('/dashboard/corte-reposicion')}
-                className="text-sm text-oca-blue hover:text-oca-blue-dark flex items-center gap-1"
+                onClick={() => router.push('/dashboard/nuevas-conexiones/medidores-cruzados')}
+                className="flex items-center gap-1 text-[11px] text-oca-blue hover:text-oca-blue-dark transition-colors"
               >
-                Ver detalle <ArrowRight size={14} />
+                Ver detalle <ArrowRight size={12} />
               </button>
-            </Flex>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Corte KPIs */}
-              <Card>
-                <Title>Resumen Inspecciones</Title>
-                <div className="mt-4 space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="text-center p-3 bg-emerald-50 rounded-lg">
-                      <CheckCircle size={20} className="text-emerald-500 mx-auto mb-1" />
-                      <p className="text-xl font-bold text-emerald-600">{formatNumber(data?.corte_reposicion.bien_ejecutados || 0)}</p>
-                      <p className="text-xs text-gray-600">Bien Ejecutados</p>
-                    </div>
-                    <div className="text-center p-3 bg-rose-50 rounded-lg">
-                      <XCircle size={20} className="text-rose-500 mx-auto mb-1" />
-                      <p className="text-xl font-bold text-rose-600">{formatNumber(data?.corte_reposicion.no_ejecutados || 0)}</p>
-                      <p className="text-xs text-gray-600">No Ejecutados</p>
-                    </div>
-                  </div>
-                  <div>
-                    <Flex justifyContent="between" className="mb-1">
-                      <Text className="text-sm">Tasa de Calidad</Text>
-                      <Text className="text-sm font-medium">{data?.corte_reposicion.tasa_calidad || 0}%</Text>
-                    </Flex>
-                    <ProgressBar
-                      value={data?.corte_reposicion.tasa_calidad || 0}
-                      color={data && data.corte_reposicion.tasa_calidad >= META_CALIDAD_CORTE ? 'emerald' : 'amber'}
-                    />
-                  </div>
-                  <div className="pt-3 border-t">
-                    <Flex justifyContent="between">
-                      <Text className="text-sm text-gray-500">Con Multa</Text>
-                      <Text className="text-sm font-medium text-amber-600">{formatNumber(data?.corte_reposicion.con_multa || 0)}</Text>
-                    </Flex>
-                    <Flex justifyContent="between" className="mt-1">
-                      <Text className="text-sm text-gray-500">Factible Cortar</Text>
-                      <Text className="text-sm font-medium text-blue-600">{formatNumber(data?.corte_reposicion.factible_cortar || 0)}</Text>
-                    </Flex>
-                  </div>
-                </div>
-              </Card>
-
-              {/* Por Situacion Encontrada */}
-              <Card>
-                <Title>Situaciones Encontradas</Title>
-                <Text className="text-gray-500">Top 5 mas frecuentes</Text>
-                <BarChart
-                  className="mt-4 h-40"
-                  data={data?.corte_reposicion.por_situacion_encontrada?.slice(0, 5).map(s => ({
-                    name: s.situacion.length > 18 ? s.situacion.substring(0, 18) + '...' : s.situacion,
-                    value: s.cantidad
-                  })) || []}
-                  index="name"
-                  categories={['value']}
-                  colors={['rose']}
-                  valueFormatter={(v) => formatNumber(v)}
-                  layout="vertical"
-                  yAxisWidth={120}
-                  showAnimation
-                />
-              </Card>
-
-              {/* Por Zona */}
-              <Card>
-                <Title>Por Zona</Title>
-                <Text className="text-gray-500">Distribucion geografica</Text>
-                <BarChart
-                  className="mt-4 h-40"
-                  data={data?.corte_reposicion.por_zona?.slice(0, 5).map(z => ({
-                    name: z.zona,
-                    Cantidad: z.cantidad,
-                    'Bien Ejec.': z.bien_ejecutados,
-                  })) || []}
-                  index="name"
-                  categories={['Cantidad', 'Bien Ejec.']}
-                  colors={['cyan', 'emerald']}
-                  valueFormatter={(v) => formatNumber(v)}
-                  showAnimation
-                />
-              </Card>
             </div>
-          </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {/* KPIs */}
+              <div className="bg-white rounded-lg border border-slate-200/60 shadow-sm grid grid-cols-1 divide-y divide-slate-100">
+                <HeroKpi
+                  label="Total Hallazgos"
+                  value={mc.total}
+                  subtitle={mc.ultima_actualizacion ? `Actualizado: ${mc.ultima_actualizacion}` : undefined}
+                />
+                <div className="grid grid-cols-2 divide-x divide-slate-100">
+                  <KpiCard label="Bien Ejec." value={mcBien} status="good" />
+                  <KpiCard label="Mal Ejec." value={mcMal} status={mcMal > 0 ? 'bad' : 'neutral'} />
+                </div>
+                <ProgressKpi
+                  label="Tasa Bien Ejecutado"
+                  value={mcTasaBien}
+                  displayValue={pct(mcTasaBien)}
+                  thresholds={{ good: 80, warning: 60 }}
+                />
+              </div>
+
+              {/* Evolución mensual */}
+              <ChartCard title="Evolución Mensual" sub="Total vs bien ejecutados" className="lg:col-span-2">
+                {mc.evolucion_mensual.length > 0 ? (
+                  <EChart option={medCruzadosOption} height="200px" />
+                ) : (
+                  <div className="flex items-center justify-center h-[200px] text-[11px] text-slate-400">Sin datos de evolución</div>
+                )}
+              </ChartCard>
+            </div>
+          </>
         )}
 
-        {/* Control Perdidas Section - Solo si está activo */}
-        {data?.control_perdidas.activo && (
-          <div className="mb-6">
-            <Flex className="mb-4" alignItems="center" justifyContent="between">
-              <div className="flex items-center gap-2">
-                <SearchX size={20} className="text-orange-600" />
-                <Title>Control de Pérdidas</Title>
-              </div>
-              <button
-                onClick={() => router.push('/dashboard/control-perdidas')}
-                className="text-sm text-oca-blue hover:text-oca-blue-dark flex items-center gap-1"
-              >
-                Ver detalle <ArrowRight size={14} />
-              </button>
-            </Flex>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Control Perdidas KPIs */}
-              <Card>
-                <Title>Resumen Inspecciones</Title>
-                <div className="mt-4 space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="text-center p-3 bg-blue-50 rounded-lg">
-                      <BarChart3 size={20} className="text-blue-500 mx-auto mb-1" />
-                      <p className="text-xl font-bold text-blue-600">{formatNumber(data?.control_perdidas.monofasico?.ejecutadas || 0)}</p>
-                      <p className="text-xs text-gray-600">Monofásico</p>
-                    </div>
-                    <div className="text-center p-3 bg-purple-50 rounded-lg">
-                      <BarChart3 size={20} className="text-purple-500 mx-auto mb-1" />
-                      <p className="text-xl font-bold text-purple-600">{formatNumber(data?.control_perdidas.trifasico?.ejecutadas || 0)}</p>
-                      <p className="text-xs text-gray-600">Trifásico</p>
-                    </div>
-                  </div>
-                  <div>
-                    <Flex justifyContent="between" className="mb-1">
-                      <Text className="text-sm">Tasa Ejecución</Text>
-                      <Text className="text-sm font-medium">{data?.control_perdidas.tasa_ejecucion || 0}%</Text>
-                    </Flex>
-                    <ProgressBar
-                      value={data?.control_perdidas.tasa_ejecucion || 0}
-                      color={data && data.control_perdidas.tasa_ejecucion >= 80 ? 'emerald' : 'amber'}
-                    />
-                  </div>
-                  <div className="pt-3 border-t">
-                    <Flex justifyContent="between">
-                      <Text className="text-sm text-gray-500">Solicitadas</Text>
-                      <Text className="text-sm font-medium">{formatNumber(data?.control_perdidas.total_solicitadas || 0)}</Text>
-                    </Flex>
-                    <Flex justifyContent="between" className="mt-1">
-                      <Text className="text-sm text-gray-500">Pendientes</Text>
-                      <Text className="text-sm font-medium text-amber-600">{formatNumber(data?.control_perdidas.pendientes || 0)}</Text>
-                    </Flex>
-                  </div>
-                </div>
-              </Card>
-
-              {/* Por Resultado */}
-              <Card>
-                <Title>Por Resultado</Title>
-                <Text className="text-gray-500">Tipos de resultado encontrados</Text>
-                <BarChart
-                  className="mt-4 h-40"
-                  data={data?.control_perdidas.por_resultado?.slice(0, 5).map(r => ({
-                    name: r.resultado.length > 20 ? r.resultado.substring(0, 20) + '...' : r.resultado,
-                    value: r.cantidad
-                  })) || []}
-                  index="name"
-                  categories={['value']}
-                  colors={['orange']}
-                  valueFormatter={(v) => formatNumber(v)}
-                  layout="vertical"
-                  yAxisWidth={120}
-                  showAnimation
-                />
-              </Card>
-
-              {/* Por Contratista */}
-              <Card>
-                <Title>Por Contratista</Title>
-                <Text className="text-gray-500">Principales contratistas</Text>
-                <BarChart
-                  className="mt-4 h-40"
-                  data={data?.control_perdidas.por_contratista?.slice(0, 5).map(c => ({
-                    name: c.contratista.length > 15 ? c.contratista.substring(0, 15) + '...' : c.contratista,
-                    Cantidad: c.cantidad,
-                  })) || []}
-                  index="name"
-                  categories={['Cantidad']}
-                  colors={['amber']}
-                  valueFormatter={(v) => formatNumber(v)}
-                  showAnimation
-                />
-              </Card>
+        {/* ── Quick nav ──────────────────────────────── */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+          <button
+            onClick={() => router.push('/dashboard/nuevas-conexiones')}
+            className="bg-white rounded-lg border border-slate-200/60 shadow-sm px-5 py-4 flex items-center justify-between group hover:border-oca-blue/30 transition-colors text-left"
+          >
+            <div>
+              <p className="text-[11px] font-semibold text-slate-700">Informe NNCC</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">Dashboard ejecutivo con análisis de contratistas, causas y mapa</p>
             </div>
-          </div>
-        )}
+            <ArrowRight size={16} className="text-slate-300 group-hover:text-oca-blue transition-colors" />
+          </button>
+
+          {mc?.activo && (
+            <button
+              onClick={() => router.push('/dashboard/nuevas-conexiones/medidores-cruzados')}
+              className="bg-white rounded-lg border border-slate-200/60 shadow-sm px-5 py-4 flex items-center justify-between group hover:border-oca-blue/30 transition-colors text-left"
+            >
+              <div>
+                <p className="text-[11px] font-semibold text-slate-700">Medidores Cruzados</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">Análisis detallado de hallazgos y medidores cruzados</p>
+              </div>
+              <ArrowRight size={16} className="text-slate-300 group-hover:text-oca-blue transition-colors" />
+            </button>
+          )}
+        </div>
 
       </div>
     </div>

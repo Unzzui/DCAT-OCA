@@ -5,7 +5,8 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatNumber(value: number, decimals = 0): string {
+export function formatNumber(value: number | undefined | null, decimals = 0): string {
+  if (value == null || isNaN(value)) return '–'
   return value.toLocaleString('es-CL', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,

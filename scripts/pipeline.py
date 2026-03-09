@@ -175,50 +175,68 @@ def truncate_and_insert(engine, table: str, df: pd.DataFrame, chunksize: int = 5
 # ---------------------------------------------------------------------------
 
 def process_nncc(engine) -> list[str]:
-    """NNCC - single Excel file with hyperlink extraction."""
-    # Primary path: 5. Nuevas Conexiones/NNCC/
-    src = str(ENEL_DIR / "5. Nuevas Conexiones" / "NNCC" / "2025-05 INFORME NNCC (2024-2029) ENE 2026.xlsx")
+    """NNCC - load from parquet (preferred) or Excel with hyperlink extraction."""
+    # 1. Try parquet files first (most recent by filename)
+    parquet_dir = DATA_DIR / "parquet"
+    parquet_matches = sorted(glob_mod.glob(str(parquet_dir / "BASE_ACTUAL_*.parquet")))
+    if parquet_matches:
+        src = parquet_matches[-1]  # most recent by name
+        print(f"    Reading parquet: {os.path.basename(src)}")
+        df = pd.read_parquet(src)
+        df = clean_unnamed_cols(df)
 
-    # Fallback paths
-    if not os.path.exists(src):
-        alt_paths = [
-            ENEL_DIR / "1. NNCC" / "2025-05 INFORME NNCC (2024-2029) ENE 2026.xlsx",
-            DATA_DIR / "2025-05 INFORME NNCC (2024-2029) ENE 2026.xlsx",
-        ]
-        for alt in alt_paths:
-            if os.path.exists(str(alt)):
-                src = str(alt)
-                break
+        # Use URL_LINK FORMULARIO column if available
+        if "URL_LINK FORMULARIO" in df.columns:
+            df["link_formulario"] = df["URL_LINK FORMULARIO"]
+            count = df["link_formulario"].notna().sum()
+            print(f"    Using URL_LINK FORMULARIO column: {count} URLs found")
+        elif "LINK FORMULARIO" in df.columns:
+            df["link_formulario"] = df["LINK FORMULARIO"]
         else:
-            # Try glob for any NNCC xlsx
-            matches = glob_mod.glob(str(ENEL_DIR / "5. Nuevas Conexiones" / "NNCC" / "*.xlsx"))
-            if not matches:
-                matches = glob_mod.glob(str(ENEL_DIR / "1. NNCC" / "*.xlsx"))
-            if not matches:
-                matches = glob_mod.glob(str(DATA_DIR / "*NNCC*.xlsx"))
-            matches = [m for m in matches if "~$" not in m]
-            if matches:
-                src = matches[0]
-            else:
-                print("    WARNING: No NNCC source file found")
-                return []
-
-    print(f"    Reading: {os.path.basename(src)}")
-    df = pd.read_excel(src, sheet_name="BASE ACTUAL")
-    df = clean_unnamed_cols(df)
-
-    # Extract hyperlinks from LINK FORMULARIO column using openpyxl
-    print("    Extracting hyperlinks from LINK FORMULARIO column...")
-    hyperlinks = extract_hyperlinks_from_column(src, "BASE ACTUAL", "LINK FORMULARIO")
-
-    # Add hyperlinks to dataframe
-    if hyperlinks:
-        # hyperlinks dict is 0-indexed (row 0 = first data row after header)
-        df["link_formulario"] = df.index.map(lambda i: hyperlinks.get(i, None))
-        print(f"    Found {len([v for v in hyperlinks.values() if v])} hyperlinks")
+            df["link_formulario"] = None
     else:
-        df["link_formulario"] = None
-        print("    No hyperlinks found")
+        # 2. Fallback to Excel
+        src = str(ENEL_DIR / "5. Nuevas Conexiones" / "NNCC" / "2025-05 INFORME NNCC (2024-2029) ENE 2026.xlsx")
+
+        if not os.path.exists(src):
+            alt_paths = [
+                ENEL_DIR / "1. NNCC" / "2025-05 INFORME NNCC (2024-2029) ENE 2026.xlsx",
+                DATA_DIR / "2025-05 INFORME NNCC (2024-2029) ENE 2026.xlsx",
+            ]
+            for alt in alt_paths:
+                if os.path.exists(str(alt)):
+                    src = str(alt)
+                    break
+            else:
+                matches = glob_mod.glob(str(ENEL_DIR / "5. Nuevas Conexiones" / "NNCC" / "*.xlsx"))
+                if not matches:
+                    matches = glob_mod.glob(str(ENEL_DIR / "1. NNCC" / "*.xlsx"))
+                if not matches:
+                    matches = glob_mod.glob(str(DATA_DIR / "*NNCC*.xlsx"))
+                matches = [m for m in matches if "~$" not in m]
+                if matches:
+                    src = matches[0]
+                else:
+                    print("    WARNING: No NNCC source file found")
+                    return []
+
+        print(f"    Reading Excel: {os.path.basename(src)}")
+        df = pd.read_excel(src, sheet_name="BASE ACTUAL")
+        df = clean_unnamed_cols(df)
+
+        if "URL_LINK FORMULARIO" in df.columns:
+            df["link_formulario"] = df["URL_LINK FORMULARIO"]
+            count = df["link_formulario"].notna().sum()
+            print(f"    Using URL_LINK FORMULARIO column: {count} URLs found")
+        else:
+            print("    Extracting hyperlinks from LINK FORMULARIO column...")
+            hyperlinks = extract_hyperlinks_from_column(src, "BASE ACTUAL", "LINK FORMULARIO")
+            if hyperlinks:
+                df["link_formulario"] = df.index.map(lambda i: hyperlinks.get(i, None))
+                print(f"    Found {len([v for v in hyperlinks.values() if v])} hyperlinks")
+            else:
+                df["link_formulario"] = None
+                print("    No hyperlinks found")
 
     # Column mapping (from migrate_data.py)
     column_mapping = {
@@ -235,6 +253,10 @@ def process_nncc(engine) -> list[str]:
         "CLIENTE CONFORME": "cliente_conforme",
         "ESTADO DEL EMPALME": "estado_empalme",
         "TIPO INSPECCIÓN": "tipo_inspeccion", "VOLTAJE": "voltaje",
+        "CONTRATISTA_ENEL": "contratista_enel",
+        "CATEGORIA_MAL_EJECUTADO": "categoria_mal_ejecutado",
+        "LATITUD": "latitud",
+        "LONGITUD": "longitud",
     }
     rename_dict = {k: v for k, v in column_mapping.items() if k in df.columns}
     df = df.rename(columns=rename_dict)
@@ -256,11 +278,25 @@ def process_nncc(engine) -> list[str]:
         'multa', 'observaciones_multa', 'fecha_inspeccion', 'inspector',
         'estado_contratista', 'resultado_normalizacion', 'cumple_norma_cc',
         'cliente_conforme', 'estado_empalme', 'tipo_inspeccion', 'voltaje',
-        'mes', 'anio', 'link_formulario',
+        'mes', 'anio', 'link_formulario', 'contratista_enel', 'categoria_mal_ejecutado',
+        'latitud', 'longitud',
     ]
     df = df[[c for c in known_cols if c in df.columns]]
 
     truncate_and_insert(engine, "nncc", df)
+
+    # Pre-calculate dashboard stats for each base + __all__
+    print("    Pre-calculating NNCC dashboard stats...")
+    try:
+        from precalculate_nncc import run as precalculate_nncc_stats
+        bases = df["base"].dropna().unique().tolist()
+        for b in sorted(bases):
+            precalculate_nncc_stats(base_filter=b)
+        precalculate_nncc_stats()  # __all__
+        print(f"    NNCC dashboard stats updated ({len(bases)} bases + __all__)")
+    except Exception as e:
+        print(f"    WARNING: Failed to pre-calculate stats: {e}")
+
     return [src]
 
 

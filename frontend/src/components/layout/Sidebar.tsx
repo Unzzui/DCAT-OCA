@@ -12,7 +12,6 @@ import {
   SearchX,
   Users,
   Settings,
-  LogOut,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -27,6 +26,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSidebar } from '@/contexts/SidebarContext'
+import { useBrand } from '@/contexts/ThemeContext'
 import { SidebarDownloads } from './SidebarDownloads'
 
 interface NavItem {
@@ -50,22 +50,11 @@ const navigation: NavItem[] = [
       { name: 'Med. Cruzados', href: '/dashboard/nuevas-conexiones/medidores-cruzados', icon: GitCompare, moduleId: 'nuevas-conexiones' },
     ],
   },
-  {
-    name: 'Lecturas',
-    href: '/dashboard/lecturas',
-    icon: FileText,
-    moduleId: 'lecturas',
-    children: [
-      { name: 'Verificaciones', href: '/dashboard/lecturas', icon: FileText, moduleId: 'lecturas' },
-      { name: 'Insp. Seguridad', href: '/dashboard/lecturas/ipal', icon: Shield, moduleId: 'lecturas' },
-      { name: 'Preventivas', href: '/dashboard/lecturas/preventivas', icon: ClipboardList, moduleId: 'lecturas' },
-      { name: 'Refacturaciones', href: '/dashboard/lecturas/refacturaciones', icon: Receipt, moduleId: 'lecturas' },
-      { name: 'Correos', href: '/dashboard/lecturas/correos', icon: Mail, moduleId: 'lecturas' },
-    ],
-  },
-  { name: 'Telecom', href: '/dashboard/telecomunicaciones', icon: Radio, moduleId: 'telecomunicaciones' },
-  { name: 'Corte y Repo.', href: '/dashboard/corte-reposicion', icon: Scissors, moduleId: 'corte-reposicion' },
-  { name: 'Ctrl. Perdidas', href: '/dashboard/control-perdidas', icon: SearchX, moduleId: 'control-perdidas' },
+  // Módulos desactivados temporalmente — sin updates del cliente
+  // { name: 'Lecturas', href: '/dashboard/lecturas', icon: FileText, moduleId: 'lecturas', children: [...] },
+  // { name: 'Telecom', href: '/dashboard/telecomunicaciones', icon: Radio, moduleId: 'telecomunicaciones' },
+  // { name: 'Corte y Repo.', href: '/dashboard/corte-reposicion', icon: Scissors, moduleId: 'corte-reposicion' },
+  // { name: 'Ctrl. Perdidas', href: '/dashboard/control-perdidas', icon: SearchX, moduleId: 'control-perdidas' },
 ]
 
 const adminNavigation: NavItem[] = [
@@ -75,8 +64,9 @@ const adminNavigation: NavItem[] = [
 
 export function Sidebar() {
   const pathname = usePathname()
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   const { isNormal, isCollapsed, isReportMode, toggleCollapse, setReportMode } = useSidebar()
+  const { isEnel } = useBrand()
   const [expandedItems, setExpandedItems] = useState<string[]>(['Nuevas Conexiones', 'Lecturas'])
 
   // En modo informe no mostrar sidebar
@@ -85,6 +75,35 @@ export function Sidebar() {
   }
 
   const isExpanded = isNormal
+
+  // Theme-dependent classes
+  const t = isEnel ? {
+    bg: 'bg-white border-r border-slate-200',
+    text: 'text-slate-700',
+    textMuted: 'text-slate-500',
+    textFaint: 'text-slate-400',
+    active: 'bg-slate-100 text-slate-900',
+    inactive: 'text-slate-500 hover:bg-slate-50 hover:text-slate-800',
+    childActive: 'bg-slate-100 text-slate-900',
+    childInactive: 'text-slate-400 hover:bg-slate-50 hover:text-slate-700',
+    border: 'border-slate-200',
+    chevron: 'text-slate-400 hover:bg-slate-100 hover:text-slate-600',
+    logo: '/logo-enel.png',
+    logoH: 36,
+  } : {
+    bg: 'bg-oca-blue',
+    text: 'text-white',
+    textMuted: 'text-white/70',
+    textFaint: 'text-white/50',
+    active: 'bg-white/15 text-white',
+    inactive: 'text-white/70 hover:bg-white/10 hover:text-white',
+    childActive: 'bg-white/15 text-white',
+    childInactive: 'text-white/60 hover:bg-white/10 hover:text-white',
+    border: 'border-white/10',
+    chevron: 'text-white/60 hover:bg-white/10 hover:text-white',
+    logo: '/logo_horizontal.svg',
+    logoH: 40,
+  }
 
   // Filtrar navegación según módulos permitidos del usuario
   const userModules = user?.allowed_modules
@@ -141,9 +160,7 @@ export function Sidebar() {
             onClick={() => isExpanded ? toggleExpand(item.name) : undefined}
             className={cn(
               'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors',
-              isActive
-                ? 'bg-white/15 text-white'
-                : 'text-white/70 hover:bg-white/10 hover:text-white',
+              isActive ? t.active : t.inactive,
               !isExpanded && 'justify-center px-0'
             )}
             title={item.name}
@@ -160,7 +177,7 @@ export function Sidebar() {
             )}
           </button>
           {isExpanded && isOpen && (
-            <div className="ml-4 mt-0.5 space-y-0.5 border-l border-white/10 pl-2">
+            <div className={cn('ml-4 mt-0.5 space-y-0.5 border-l pl-2', t.border)}>
               {item.children!.map(child => {
                 const childActive = pathname === child.href
                 return (
@@ -169,9 +186,7 @@ export function Sidebar() {
                     href={child.href}
                     className={cn(
                       'flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors',
-                      childActive
-                        ? 'bg-white/15 text-white'
-                        : 'text-white/60 hover:bg-white/10 hover:text-white'
+                      childActive ? t.childActive : t.childInactive
                     )}
                     title={child.name}
                   >
@@ -192,9 +207,7 @@ export function Sidebar() {
         href={item.disabled ? '#' : item.href}
         className={cn(
           'flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors',
-          isActive
-            ? 'bg-white/15 text-white'
-            : 'text-white/70 hover:bg-white/10 hover:text-white',
+          isActive ? t.active : t.inactive,
           item.disabled && 'opacity-40 cursor-not-allowed',
           !isExpanded && 'justify-center px-0'
         )}
@@ -210,30 +223,32 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'fixed left-0 top-0 z-40 h-screen bg-oca-blue transition-all duration-300 ease-in-out',
+        'fixed left-0 top-0 z-40 h-screen transition-all duration-300 ease-in-out',
+        t.bg,
         isExpanded ? 'w-56' : 'w-14'
       )}
     >
       <div className="flex h-full flex-col">
         {/* Header */}
         <div className={cn(
-          'flex items-center border-b border-white/10 h-14',
+          'flex items-center h-14',
+          `border-b ${t.border}`,
           isExpanded ? 'justify-between px-3' : 'justify-center'
         )}>
           {isExpanded && (
             <Link href="/dashboard">
               <Image
-                src="/logo_horizontal.svg"
-                alt="OCA"
+                src={t.logo}
+                alt={isEnel ? 'Enel' : 'OCA'}
                 width={120}
-                height={40}
+                height={t.logoH}
                 className="h-10 w-auto"
               />
             </Link>
           )}
           <button
             onClick={toggleCollapse}
-            className="rounded p-1.5 text-white/60 hover:bg-white/10 hover:text-white transition-colors"
+            className={cn('rounded p-1.5 transition-colors', t.chevron)}
             title={isExpanded ? "Contraer" : "Expandir"}
           >
             {isExpanded ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
@@ -245,14 +260,14 @@ export function Sidebar() {
           {filteredNavigation.map(renderNavItem)}
 
           {user?.role === 'admin' && (
-            <div className="pt-2 mt-2 border-t border-white/10 space-y-0.5">
+            <div className={cn('pt-2 mt-2 border-t space-y-0.5', t.border)}>
               {adminNavigation.map(renderNavItem)}
             </div>
           )}
         </nav>
 
         {/* Footer */}
-        <div className="border-t border-white/10 p-2 space-y-0.5">
+        <div className={cn('border-t p-2 space-y-0.5', t.border)}>
           {/* Exportar */}
           <SidebarDownloads isExpanded={isExpanded} />
 
@@ -260,7 +275,8 @@ export function Sidebar() {
           <button
             onClick={setReportMode}
             className={cn(
-              'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-white/70 transition-colors hover:bg-white/10 hover:text-white',
+              'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors',
+              t.inactive,
               !isExpanded && 'justify-center px-0'
             )}
             title="Modo Informe (Esc para salir)"
@@ -269,26 +285,6 @@ export function Sidebar() {
             {isExpanded && <span>Modo Informe</span>}
           </button>
 
-          {/* User info */}
-          {isExpanded && user && (
-            <div className="px-2.5 py-1.5">
-              <p className="truncate text-xs font-medium text-white">{user.full_name}</p>
-              <p className="truncate text-[10px] text-white/50">{user.email}</p>
-            </div>
-          )}
-
-          {/* Logout */}
-          <button
-            onClick={logout}
-            className={cn(
-              'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-white/70 transition-colors hover:bg-white/10 hover:text-white',
-              !isExpanded && 'justify-center px-0'
-            )}
-            title="Cerrar sesion"
-          >
-            <LogOut size={18} className="shrink-0" />
-            {isExpanded && <span>Salir</span>}
-          </button>
         </div>
       </div>
     </aside>

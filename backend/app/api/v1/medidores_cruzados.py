@@ -101,6 +101,25 @@ async def get_periodos(
     return await medidores_cruzados_service.get_periodos()
 
 
+@router.get("/dashboard/all")
+async def get_dashboard_all(
+    zona: Optional[str] = Query(None, description="Filtrar por zona"),
+    mes: Optional[str] = Query(None, description="Filtrar por mes"),
+    anio: Optional[str] = Query(None, description="Filtrar por año"),
+    fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Get all dashboard data in a single request: overview, inspectores, operacional."""
+    return await medidores_cruzados_service.get_dashboard_all(
+        zona=zona,
+        mes=mes,
+        anio=anio,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+    )
+
+
 @router.get("/analisis-operacional")
 async def get_analisis_operacional(
     zona: Optional[str] = Query(None, description="Filtrar por zona"),

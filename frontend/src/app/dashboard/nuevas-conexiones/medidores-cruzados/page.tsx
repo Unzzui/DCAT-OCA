@@ -1,1068 +1,241 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { Loader2, RefreshCw, AlertTriangle } from 'lucide-react'
+import { Select, SelectItem, Tab, TabGroup, TabList, TabPanel, TabPanels } from '@tremor/react'
 import { Header } from '@/components/layout/Header'
-import {
-  Card,
-  Title,
-  Text,
-  Flex,
-  Table,
-  TableHead,
-  TableHeaderCell,
-  TableBody,
-  TableRow,
-  TableCell,
-  Badge,
-  Select,
-  SelectItem,
-  TextInput,
-  BarChart,
-  DonutChart,
-  AreaChart,
-  Tab,
-  TabGroup,
-  TabList,
-  TabPanel,
-  TabPanels,
-  ProgressBar,
-} from '@tremor/react'
-import {
-  Search,
-  Filter,
-  TrendingUp,
-  Users,
-  MapPin,
-  GitCompare,
-  Activity,
-  AlertOctagon,
-  Clock,
-} from 'lucide-react'
-import { Button } from '@/components/ui/Button'
-import { ExportOverlay } from '@/components/ui/ExportOverlay'
-import { ExportDropdown } from '@/components/ui/ExportDropdown'
-import { formatNumber } from '@/lib/utils'
 import { api } from '@/lib/api'
-import { MedidoresCruzadosStats, PaginatedResponse, MedidorCruzado } from '@/types'
+import type { MCDashboardData, MCDrillFilter } from './types'
+import ResumenTab from './components/ResumenTab'
+import InspectoresTab from './components/InspectoresTab'
+import OperacionalTab from './components/OperacionalTab'
+import DetalleTab from './components/DetalleTab'
+
+const MESES: Record<number, string> = {
+  1: 'ENERO', 2: 'FEBRERO', 3: 'MARZO', 4: 'ABRIL', 5: 'MAYO', 6: 'JUNIO',
+  7: 'JULIO', 8: 'AGOSTO', 9: 'SEPTIEMBRE', 10: 'OCTUBRE', 11: 'NOVIEMBRE', 12: 'DICIEMBRE',
+}
 
 interface Periodos {
   meses: number[]
   anios: number[]
   ultimo_mes: number | null
   ultimo_anio: number | null
-}
-
-interface AnalisisOperacional {
-  tiempos_proceso: {
-    correo_asignacion: number
-    asignacion_analisis: number
-    analisis_inspeccion: number
-    total_dias: number
-    max_dias: number
-    min_dias: number
-    casos_mayor_30: number
-    casos_mayor_60: number
-    total: number
-  }
-  cuellos_botella: Array<{
-    etapa: string
-    cantidad: number
-    sin_inspeccion: number
-    dias_promedio: number
-    pct_estancado: number
-  }>
-  detalle_resultados: {
-    mal_ejecutados: number
-    bien_ejecutados: number
-    medidor_no_encontrado: number
-    medidor_diferente: number
-    medidor_cruzado: number
-    sin_observacion: number
-    total: number
-  }
-  ranking_inspectores: Array<{
-    inspector: string
-    total: number
-    bien_ejecutados: number
-    mal_ejecutados: number
-    tasa_bien_ejecutado: number
-    dias_promedio: number
-    zonas_atendidas: number
-    sin_observacion: number
-    calidad_doc: string
-  }>
-  casos_pendientes: {
-    sin_inspeccion: number
-    sin_asignar: number
-    asignados_sin_inspeccionar: number
-    estancados: number
-    total: number
-  }
-  evolucion_tiempos: Array<{
-    periodo: string
-    total: number
-    dias_promedio: number
-    bien_ejecutados: number
-    mal_ejecutados: number
-    tasa_bien: number
-  }>
-  alertas: Array<{
-    tipo: string
-    titulo: string
-    mensaje: string
-  }>
-}
-
-const MESES = [
-  { value: 1, label: 'Enero' },
-  { value: 2, label: 'Febrero' },
-  { value: 3, label: 'Marzo' },
-  { value: 4, label: 'Abril' },
-  { value: 5, label: 'Mayo' },
-  { value: 6, label: 'Junio' },
-  { value: 7, label: 'Julio' },
-  { value: 8, label: 'Agosto' },
-  { value: 9, label: 'Septiembre' },
-  { value: 10, label: 'Octubre' },
-  { value: 11, label: 'Noviembre' },
-  { value: 12, label: 'Diciembre' },
-]
-
-const MES_MAP: Record<number, string> = {
-  1: 'ENERO', 2: 'FEBRERO', 3: 'MARZO', 4: 'ABRIL', 5: 'MAYO', 6: 'JUNIO',
-  7: 'JULIO', 8: 'AGOSTO', 9: 'SEPTIEMBRE', 10: 'OCTUBRE', 11: 'NOVIEMBRE', 12: 'DICIEMBRE',
+  meses_por_anio: Record<string, number[]>
 }
 
 export default function MedidoresCruzadosPage() {
+  const [activeTab, setActiveTab] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [dashboardData, setDashboardData] = useState<MCDashboardData | null>(null)
+  const [selectedZona, setSelectedZona] = useState<string | null>(null)
+  const [drillFilters, setDrillFilters] = useState<MCDrillFilter[]>([])
+
   // Global filters
-  const [globalZona, setGlobalZona] = useState('')
-  const [globalComuna, setGlobalComuna] = useState('')
-  const [globalEstadoMedidor, setGlobalEstadoMedidor] = useState('')
   const [globalMes, setGlobalMes] = useState('')
   const [globalAnio, setGlobalAnio] = useState('')
+  const [globalZona, setGlobalZona] = useState('')
 
-  // Table filters
-  const [searchTerm, setSearchTerm] = useState('')
-  const [tableResultado, setTableResultado] = useState('')
-  const [page, setPage] = useState(1)
-
-  // Data
-  const [stats, setStats] = useState<MedidoresCruzadosStats | null>(null)
-  const [data, setData] = useState<PaginatedResponse<MedidorCruzado> | null>(null)
-  const [analisisOp, setAnalisisOp] = useState<AnalisisOperacional | null>(null)
+  // Filter options
   const [zonas, setZonas] = useState<string[]>([])
   const [comunas, setComunas] = useState<string[]>([])
+  const [inspectors, setInspectors] = useState<string[]>([])
   const [estadosMedidor, setEstadosMedidor] = useState<string[]>([])
-  const [periodos, setPeriodos] = useState<Periodos>({ meses: [], anios: [], ultimo_mes: null, ultimo_anio: null })
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [exporting, setExporting] = useState(false)
-  const [exportFormat, setExportFormat] = useState<'excel' | 'csv'>('excel')
+  const [periodos, setPeriodos] = useState<Periodos>({
+    meses: [], anios: [], ultimo_mes: null, ultimo_anio: null, meses_por_anio: {},
+  })
 
-  const fetchFilters = useCallback(async () => {
-    try {
-      const [z, c, e, p] = await Promise.all([
-        api.get<string[]>('/api/v1/medidores-cruzados/zonas'),
-        api.get<string[]>('/api/v1/medidores-cruzados/comunas'),
-        api.get<string[]>('/api/v1/medidores-cruzados/estados-medidor'),
-        api.get<Periodos>('/api/v1/medidores-cruzados/periodos'),
-      ])
-      setZonas(z)
-      setComunas(c)
-      setEstadosMedidor(e)
-      setPeriodos(p)
-    } catch (error) {
-      console.error('Error fetching filters:', error)
+  // Meses disponibles segun el año seleccionado
+  const availableMeses = useMemo(() => {
+    if (!globalAnio) return periodos.meses
+    return periodos.meses_por_anio[globalAnio] || []
+  }, [globalAnio, periodos.meses, periodos.meses_por_anio])
+
+  // Si el mes seleccionado no existe en el año, limpiar
+  useEffect(() => {
+    if (globalMes && globalAnio) {
+      const mesNum = Object.entries(MESES).find(([, v]) => v === globalMes)?.[0]
+      if (mesNum && !availableMeses.includes(Number(mesNum))) {
+        setGlobalMes('')
+      }
     }
+  }, [globalAnio, globalMes, availableMeses])
+
+  // Load filter options on mount
+  useEffect(() => {
+    const loadFilters = async () => {
+      try {
+        const [z, c, i, e, p] = await Promise.all([
+          api.get<string[]>('/api/v1/medidores-cruzados/zonas'),
+          api.get<string[]>('/api/v1/medidores-cruzados/comunas'),
+          api.get<Array<{ inspector: string }>>('/api/v1/medidores-cruzados/inspectors'),
+          api.get<string[]>('/api/v1/medidores-cruzados/estados-medidor'),
+          api.get<Periodos>('/api/v1/medidores-cruzados/periodos'),
+        ])
+        setZonas(z)
+        setComunas(c)
+        setInspectors(i.map((x) => x.inspector))
+        setEstadosMedidor(e)
+        setPeriodos(p)
+        // Default: consolidado 2025 (todos los meses)
+        setGlobalAnio(p.anios.includes(2025) ? '2025' : String(p.ultimo_anio || ''))
+      } catch (err) {
+        console.error('Error loading filters:', err)
+      }
+    }
+    loadFilters()
   }, [])
 
-  const fetchStats = useCallback(async () => {
+  // Load dashboard data when filters change
+  const fetchDashboard = useCallback(async () => {
+    setLoading(true)
+    setError(null)
     try {
-      const params = new URLSearchParams()
-      if (globalZona) params.append('zona', globalZona)
-      if (globalComuna) params.append('comuna', globalComuna)
-      if (globalEstadoMedidor) params.append('estado_medidor', globalEstadoMedidor)
-      if (globalMes) params.append('mes', MES_MAP[Number(globalMes)] || '')
-      if (globalAnio) params.append('anio', globalAnio)
-
-      const url = `/api/v1/medidores-cruzados/stats${params.toString() ? '?' + params.toString() : ''}`
-      const response = await api.get<MedidoresCruzadosStats>(url)
-      setStats(response)
-    } catch (error) {
-      console.error('Error fetching stats:', error)
-    }
-  }, [globalZona, globalComuna, globalEstadoMedidor, globalMes, globalAnio])
-
-  const fetchData = useCallback(async () => {
-    try {
-      const params = new URLSearchParams()
-      params.append('page', page.toString())
-      params.append('limit', '10')
-      if (searchTerm) params.append('search', searchTerm)
-      if (globalZona) params.append('zona', globalZona)
-      if (globalComuna) params.append('comuna', globalComuna)
-      if (globalEstadoMedidor) params.append('estado_medidor', globalEstadoMedidor)
-      if (globalMes) params.append('mes', MES_MAP[Number(globalMes)] || '')
-      if (globalAnio) params.append('anio', globalAnio)
-      if (tableResultado) params.append('search', tableResultado)
-
-      const response = await api.get<PaginatedResponse<MedidorCruzado>>(`/api/v1/medidores-cruzados?${params.toString()}`)
-      setData(response)
-    } catch (error) {
-      console.error('Error fetching data:', error)
-    }
-  }, [page, searchTerm, globalZona, globalComuna, globalEstadoMedidor, globalMes, globalAnio, tableResultado])
-
-  const fetchAnalisisOperacional = useCallback(async () => {
-    try {
-      const params = new URLSearchParams()
-      if (globalZona) params.append('zona', globalZona)
-      if (globalMes) params.append('mes', MES_MAP[Number(globalMes)] || '')
-      if (globalAnio) params.append('anio', globalAnio)
-
-      const url = `/api/v1/medidores-cruzados/analisis-operacional${params.toString() ? '?' + params.toString() : ''}`
-      const response = await api.get<AnalisisOperacional>(url)
-      setAnalisisOp(response)
-    } catch (error) {
-      console.error('Error fetching analisis operacional:', error)
+      const params: Record<string, string> = {}
+      if (globalZona) params.zona = globalZona
+      if (globalMes) params.mes = globalMes
+      if (globalAnio) params.anio = globalAnio
+      const data = await api.get<MCDashboardData>('/api/v1/medidores-cruzados/dashboard/all', params)
+      setDashboardData(data)
+    } catch (err) {
+      setError('Error al cargar los datos del dashboard')
+      console.error('Error fetching dashboard:', err)
+    } finally {
+      setLoading(false)
     }
   }, [globalZona, globalMes, globalAnio])
 
-  const renderCount = useRef(0)
-
   useEffect(() => {
-    const loadAll = async () => {
-      setLoading(true)
-      const [z, c, e, periodosRes] = await Promise.all([
-        api.get<string[]>('/api/v1/medidores-cruzados/zonas'),
-        api.get<string[]>('/api/v1/medidores-cruzados/comunas'),
-        api.get<string[]>('/api/v1/medidores-cruzados/estados-medidor'),
-        api.get<Periodos>('/api/v1/medidores-cruzados/periodos'),
-      ])
-      setZonas(z)
-      setComunas(c)
-      setEstadosMedidor(e)
-      setPeriodos(periodosRes)
+    if (periodos.ultimo_anio) fetchDashboard()
+  }, [fetchDashboard, periodos.ultimo_anio])
 
-      const initMes = periodosRes.ultimo_mes ? String(periodosRes.ultimo_mes) : ''
-      const initAnio = periodosRes.ultimo_anio ? String(periodosRes.ultimo_anio) : ''
-
-      const statsParams = new URLSearchParams()
-      if (initMes) statsParams.append('mes', MES_MAP[Number(initMes)] || '')
-      if (initAnio) statsParams.append('anio', initAnio)
-
-      const dataParams = new URLSearchParams()
-      dataParams.append('page', '1')
-      dataParams.append('limit', '10')
-      if (initMes) dataParams.append('mes', MES_MAP[Number(initMes)] || '')
-      if (initAnio) dataParams.append('anio', initAnio)
-
-      const [statsRes, dataRes, analisisRes] = await Promise.all([
-        api.get<MedidoresCruzadosStats>(`/api/v1/medidores-cruzados/stats${statsParams.toString() ? '?' + statsParams.toString() : ''}`),
-        api.get<PaginatedResponse<MedidorCruzado>>(`/api/v1/medidores-cruzados?${dataParams.toString()}`),
-        api.get<AnalisisOperacional>(`/api/v1/medidores-cruzados/analisis-operacional${statsParams.toString() ? '?' + statsParams.toString() : ''}`),
-      ])
-      setStats(statsRes)
-      setData(dataRes)
-      setAnalisisOp(analisisRes)
-      setGlobalMes(initMes)
-      setGlobalAnio(initAnio)
-      setLoading(false)
-    }
-    loadAll()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Drill-through handler
+  const addDrillFilter = useCallback((key: string, label: string, value: string) => {
+    setDrillFilters((prev) => {
+      const existing = prev.find((f) => f.key === key)
+      return existing
+        ? prev.map((f) => (f.key === key ? { key, label, value } : f))
+        : [...prev, { key, label, value }]
+    })
+    setActiveTab(3)
   }, [])
 
-  useEffect(() => {
-    if (renderCount.current < 2) {
-      renderCount.current++
-      return
-    }
-    const doRefresh = async () => {
-      setRefreshing(true)
-      await Promise.all([fetchStats(), fetchData(), fetchAnalisisOperacional()])
-      setRefreshing(false)
-    }
-    doRefresh()
-  }, [fetchStats, fetchData, fetchAnalisisOperacional])
-
-  const clearGlobalFilters = () => {
-    setGlobalZona('')
-    setGlobalComuna('')
-    setGlobalEstadoMedidor('')
-    setGlobalMes('')
-    setGlobalAnio('')
-  }
-
-  const clearTableFilters = () => {
-    setSearchTerm('')
-    setTableResultado('')
-    setPage(1)
-  }
-
-  const hasActiveFilters = Boolean(globalZona || globalComuna || globalEstadoMedidor || globalMes || globalAnio || searchTerm || tableResultado)
-
-  const handleExport = async (format: 'csv' | 'excel') => {
-    try {
-      setExportFormat(format)
-      setExporting(true)
-      const params: Record<string, string | undefined> = {
-        format,
-        zona: globalZona || undefined,
-        comuna: globalComuna || undefined,
-        estado_medidor: globalEstadoMedidor || undefined,
-        mes: globalMes ? MES_MAP[Number(globalMes)] : undefined,
-        anio: globalAnio || undefined,
-        search: searchTerm || undefined,
-      }
-      const filename = format === 'excel' ? 'medidores_cruzados.xlsx' : 'medidores_cruzados.csv'
-      await api.downloadFile('/api/v1/medidores-cruzados/export', filename, params)
-    } catch (error) {
-      console.error('Error exporting:', error)
-      alert('Error al exportar los datos')
-    } finally {
-      setExporting(false)
-    }
-  }
-
-  // Chart data
-  const zonaData = stats ? Object.entries(stats.por_zona).map(([name, value]) => ({
-    name,
-    value: value as number
-  })) : []
-
-  const estadoMedidorData = stats ? Object.entries(stats.por_estado_medidor).slice(0, 8).map(([name, value]) => ({
-    name: name.length > 25 ? name.substring(0, 25) + '...' : name,
-    value: value as number
-  })) : []
-
-  const resultadoData = stats ? Object.entries(stats.por_resultado).map(([name, value]) => ({
-    name,
-    value: value as number
-  })).filter(d => d.value > 0) : []
-
-  const inspectorData = stats?.por_inspector.slice(0, 8).map(i => ({
-    name: i.inspector,
-    Cantidad: i.cantidad,
-    'Tasa Bien Ejec.': i.tasa_bien_ejecutado,
-  })) || []
-
-  const evolucionData = stats?.evolucion_mensual.map(m => ({
-    mes: m.mes,
-    Total: m.total,
-    'Bien Ejecutados': m.bien_ejecutados,
-  })) || []
-
-  const comunaData = stats?.por_comuna?.slice(0, 10).map(c => ({
-    name: c.comuna,
-    value: c.cantidad,
-  })) || []
-
-  const totalBien = stats?.por_resultado?.['TRABAJO BIEN EJECUTADO'] || 0
-  const totalMal = stats?.por_resultado?.['TRABAJO MAL EJECUTADO'] || 0
-  const tasaBien = stats?.total ? Math.round((totalBien / stats.total) * 1000) / 10 : 0
-
-  const getResultadoBadge = (resultado: string | null) => {
-    if (!resultado) return <span className="text-gray-400">-</span>
-    if (resultado.includes('BIEN')) return <Badge color="emerald">Bien Ejecutado</Badge>
-    if (resultado.includes('MAL')) return <Badge color="rose">Mal Ejecutado</Badge>
-    return <Badge color="gray">{resultado}</Badge>
-  }
-
-  const getEstadoBadge = (estado: string | null) => {
-    if (!estado) return <span className="text-gray-400">-</span>
-    if (estado.includes('NORMAL')) return <Badge color="emerald">{estado}</Badge>
-    if (estado.includes('MAL') || estado.includes('CRUZADO')) return <Badge color="rose">{estado}</Badge>
-    return <Badge color="gray">{estado}</Badge>
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-2 border-oca-blue border-t-transparent mx-auto"></div>
-          <p className="mt-3 text-sm text-gray-500">Cargando datos...</p>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="min-h-screen bg-gray-50">
-      <ExportOverlay
-        isVisible={exporting}
-        format={exportFormat}
-        recordCount={hasActiveFilters ? data?.total : stats?.total}
-        hasFilters={hasActiveFilters}
-      />
-      {refreshing && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-white rounded-full shadow-lg px-4 py-2 flex items-center gap-2 border">
-          <div className="animate-spin rounded-full h-4 w-4 border-2 border-oca-blue border-t-transparent"></div>
-          <span className="text-sm text-gray-600">Actualizando datos...</span>
-        </div>
-      )}
-      <Header
-        title="Medidores Cruzados"
-        subtitle="Inspecciones de medidores cruzados - Nuevas Conexiones"
-      />
+    <div className="flex flex-col min-h-screen bg-slate-50/80">
+      <Header title="Medidores Cruzados" subtitle="Dashboard de inspecciones y estado de medidores" />
 
-      <div className={`p-6 transition-opacity duration-200 ${refreshing ? 'opacity-60 pointer-events-none' : ''}`}>
-        {/* Global Filters Bar */}
-        <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-          <Flex justifyContent="between" alignItems="center" className="flex-wrap gap-4">
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-2">
-                <Filter size={16} className="text-gray-400" />
-                <span className="text-sm font-medium text-gray-600">Filtros:</span>
-              </div>
-              <div className="flex items-center gap-3 mr-4 pr-4 border-r-2 border-gray-300 bg-white rounded-l-lg py-2 pl-4">
-                <span className="text-xs text-gray-600 font-medium whitespace-nowrap">Periodo:</span>
-                <Select value={globalAnio} onValueChange={setGlobalAnio} placeholder="Año" className="w-32">
-                  <SelectItem value="">Año</SelectItem>
-                  {periodos.anios.map(a => (
-                    <SelectItem key={a} value={String(a)}>{a}</SelectItem>
-                  ))}
-                </Select>
-                <Select value={globalMes} onValueChange={setGlobalMes} placeholder="Mes" className="w-40">
-                  <SelectItem value="">Mes</SelectItem>
-                  {MESES.filter(m => periodos.meses.includes(m.value)).map(m => (
-                    <SelectItem key={m.value} value={String(m.value)}>{m.label}</SelectItem>
-                  ))}
-                </Select>
-              </div>
-              <div className="w-40">
-                <Select value={globalZona} onValueChange={setGlobalZona} placeholder="Zona">
-                  <SelectItem value="">Todas las zonas</SelectItem>
-                  {zonas.map(z => (
-                    <SelectItem key={z} value={z}>{z}</SelectItem>
-                  ))}
-                </Select>
-              </div>
-              <div className="w-48">
-                <Select value={globalComuna} onValueChange={setGlobalComuna} placeholder="Comuna">
-                  <SelectItem value="">Todas las comunas</SelectItem>
-                  {comunas.slice(0, 30).map(c => (
-                    <SelectItem key={c} value={c}>{c}</SelectItem>
-                  ))}
-                </Select>
-              </div>
-              <div className="w-48">
-                <Select value={globalEstadoMedidor} onValueChange={setGlobalEstadoMedidor} placeholder="Estado Medidor">
-                  <SelectItem value="">Todos los estados</SelectItem>
-                  {estadosMedidor.map(e => (
-                    <SelectItem key={e} value={e}>{e}</SelectItem>
-                  ))}
-                </Select>
-              </div>
-              {(globalZona || globalComuna || globalEstadoMedidor || globalMes || globalAnio) && (
-                <button
-                  onClick={clearGlobalFilters}
-                  className="text-sm text-oca-blue hover:text-oca-blue-dark"
-                >
-                  Limpiar filtros
-                </button>
-              )}
+      <main className="flex-1 px-4 py-3 space-y-3 max-w-[1600px] mx-auto w-full">
+        {/* Global filter bar */}
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wider whitespace-nowrap">Año</span>
+            <div className="w-40">
+              <Select value={globalAnio} onValueChange={setGlobalAnio} placeholder="Todos los años">
+                <SelectItem value="">Todos los años</SelectItem>
+                {periodos.anios.map((a) => (
+                  <SelectItem key={a} value={String(a)}>{a}</SelectItem>
+                ))}
+              </Select>
             </div>
-            <div className="text-sm text-gray-500">
-              {stats && (
-                <span>
-                  <strong>{formatNumber(stats.total)}</strong> registros
-                </span>
-              )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wider whitespace-nowrap">Mes</span>
+            <div className="w-48">
+              <Select value={globalMes} onValueChange={setGlobalMes} placeholder="Todos los meses">
+                <SelectItem value="">Todos los meses</SelectItem>
+                {availableMeses.map((m) => (
+                  <SelectItem key={m} value={MESES[m]}>{MESES[m]}</SelectItem>
+                ))}
+              </Select>
             </div>
-          </Flex>
-        </div>
-
-        {/* KPIs */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Total</p>
-            <p className="text-2xl font-semibold text-gray-900 mt-1">{formatNumber(stats?.total || 0)}</p>
           </div>
 
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Bien Ejecutados</p>
-            <p className="text-2xl font-semibold text-emerald-600 mt-1">{formatNumber(totalBien)}</p>
-            <p className="text-xs text-gray-400 mt-1">{tasaBien}%</p>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wider whitespace-nowrap">Zona</span>
+            <div className="w-48">
+              <Select value={globalZona} onValueChange={setGlobalZona} placeholder="Todas las zonas">
+                <SelectItem value="">Todas las zonas</SelectItem>
+                {zonas.map((z) => (
+                  <SelectItem key={z} value={z}>{z}</SelectItem>
+                ))}
+              </Select>
+            </div>
           </div>
 
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Mal Ejecutados</p>
-            <p className="text-2xl font-semibold text-red-600 mt-1">{formatNumber(totalMal)}</p>
-          </div>
+          <div className="flex-1" />
 
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Zonas</p>
-            <p className="text-2xl font-semibold text-blue-600 mt-1">{Object.keys(stats?.por_zona || {}).length}</p>
-          </div>
-
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Comunas</p>
-            <p className="text-2xl font-semibold text-violet-600 mt-1">{stats?.por_comuna?.length || 0}</p>
-          </div>
-
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Inspectores</p>
-            <p className="text-2xl font-semibold text-gray-900 mt-1">{stats?.por_inspector?.length || 0}</p>
-          </div>
+          <button
+            onClick={() => { api.clearCache(); fetchDashboard() }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-white border border-transparent hover:border-slate-200 transition-all"
+          >
+            <RefreshCw size={13} /> Actualizar
+          </button>
         </div>
 
         {/* Tabs */}
-        <TabGroup>
-          <TabList className="mb-4">
-            <Tab icon={GitCompare}>Resumen Ejecutivo</Tab>
-            <Tab icon={MapPin}>Distribucion</Tab>
-            <Tab icon={TrendingUp}>Tendencias</Tab>
-            <Tab icon={Activity}>Análisis Operacional</Tab>
-            <Tab icon={Search}>Datos</Tab>
+        <TabGroup index={activeTab} onIndexChange={setActiveTab}>
+          <TabList className="mb-0 border-b border-slate-200">
+            <Tab>Resumen Ejecutivo</Tab>
+            <Tab>Inspectores</Tab>
+            <Tab>Análisis Operacional</Tab>
+            <Tab>Detalle</Tab>
           </TabList>
+
           <TabPanels>
-            {/* Resumen Ejecutivo Panel */}
             <TabPanel>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-                {/* Resultado Inspeccion */}
-                <Card>
-                  <Title>Resultado de Inspecciones</Title>
-                  <Text className="text-gray-500">Bien vs Mal ejecutados</Text>
-                  <div className="mt-4">
-                    <DonutChart
-                      className="h-32"
-                      data={resultadoData}
-                      category="value"
-                      index="name"
-                      colors={['emerald', 'rose', 'amber', 'gray']}
-                      valueFormatter={(v) => formatNumber(v)}
-                      showAnimation
-                    />
-                  </div>
-                  <div className="mt-3 space-y-1.5">
-                    {resultadoData.map(r => (
-                      <Flex key={r.name} justifyContent="between">
-                        <span className="text-sm flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${r.name.includes('BIEN') ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
-                          {r.name}
-                        </span>
-                        <span className="text-sm font-semibold">{formatNumber(r.value)}</span>
-                      </Flex>
-                    ))}
-                  </div>
-                  <div className="mt-4 pt-4 border-t">
-                    <Flex justifyContent="between" alignItems="center">
-                      <div>
-                        <p className="text-2xl font-bold text-oca-blue">{tasaBien}%</p>
-                        <p className="text-xs text-gray-500">Tasa Bien Ejecutado</p>
-                      </div>
-                    </Flex>
-                  </div>
-                </Card>
-
-                {/* Por Zona */}
-                <Card>
-                  <Title>Por Zona</Title>
-                  <DonutChart
-                    className="mt-4 h-32"
-                    data={zonaData}
-                    category="value"
-                    index="name"
-                    colors={['blue', 'cyan', 'indigo', 'slate']}
-                    valueFormatter={(v) => formatNumber(v)}
-                    showAnimation
-                  />
-                  <div className="mt-3 space-y-1">
-                    {zonaData.map(z => (
-                      <Flex key={z.name} justifyContent="between">
-                        <Text className="text-xs">{z.name}</Text>
-                        <Text className="text-xs font-medium">{formatNumber(z.value)}</Text>
-                      </Flex>
-                    ))}
-                  </div>
-                </Card>
-
-                {/* Estado Medidor */}
-                <Card>
-                  <Title>Estado Medidor</Title>
-                  <Text className="text-gray-500">Top 8 estados</Text>
-                  <BarChart
-                    className="mt-4 h-48"
-                    data={estadoMedidorData}
-                    index="name"
-                    categories={['value']}
-                    colors={['amber']}
-                    valueFormatter={(v) => formatNumber(v)}
-                    layout="vertical"
-                    yAxisWidth={160}
-                    showAnimation
-                  />
-                </Card>
-              </div>
-
-              {/* Tabla detalle por inspector */}
-              <Card>
-                <Title>Detalle por Inspector</Title>
-                <Table className="mt-4">
-                  <TableHead>
-                    <TableRow>
-                      <TableHeaderCell>Inspector</TableHeaderCell>
-                      <TableHeaderCell className="text-right">Cantidad</TableHeaderCell>
-                      <TableHeaderCell className="text-right">Tasa Bien Ejec.</TableHeaderCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {stats?.por_inspector.map((i) => (
-                      <TableRow key={i.inspector}>
-                        <TableCell className="font-medium">{i.inspector}</TableCell>
-                        <TableCell className="text-right">{formatNumber(i.cantidad)}</TableCell>
-                        <TableCell className="text-right">
-                          <span className={i.tasa_bien_ejecutado >= 80 ? 'text-emerald-600' : i.tasa_bien_ejecutado >= 60 ? 'text-amber-600' : 'text-rose-600'}>
-                            {i.tasa_bien_ejecutado}%
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Card>
+              {activeTab !== 0 ? null : loading ? (
+                <div className="flex items-center justify-center h-48"><Loader2 size={24} className="animate-spin text-slate-400" /></div>
+              ) : error ? (
+                <div className="bg-white rounded-lg border border-slate-200 p-8 text-center mt-3">
+                  <AlertTriangle size={24} className="mx-auto text-red-500 mb-2" />
+                  <p className="text-sm text-slate-600 font-medium">{error}</p>
+                  <button onClick={fetchDashboard} className="mt-3 px-4 py-1.5 rounded-md text-xs font-medium text-slate-600 border border-slate-200 hover:bg-slate-50 transition-colors">Reintentar</button>
+                </div>
+              ) : dashboardData ? (
+                <div className="mt-3">
+                  <ResumenTab data={dashboardData.overview} selectedZona={selectedZona} setSelectedZona={setSelectedZona} />
+                </div>
+              ) : null}
             </TabPanel>
 
-            {/* Distribucion Panel */}
             <TabPanel>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                {/* Top Comunas */}
-                <Card>
-                  <Title>Top Comunas</Title>
-                  <Text className="text-gray-500">Comunas con mas inspecciones</Text>
-                  <BarChart
-                    className="mt-4 h-72"
-                    data={comunaData}
-                    index="name"
-                    categories={['value']}
-                    colors={['violet']}
-                    valueFormatter={(v) => formatNumber(v)}
-                    layout="vertical"
-                    yAxisWidth={100}
-                    showAnimation
-                  />
-                </Card>
+              {activeTab !== 1 ? null : loading ? (
+                <div className="flex items-center justify-center h-48"><Loader2 size={24} className="animate-spin text-slate-400" /></div>
+              ) : dashboardData ? (
+                <div className="mt-3">
+                  <InspectoresTab data={dashboardData.inspectores} overview={dashboardData.overview} addDrillFilter={addDrillFilter} />
+                </div>
+              ) : null}
+            </TabPanel>
 
-                {/* Por Inspector */}
-                <Card>
-                  <Title>Por Inspector</Title>
-                  <Text className="text-gray-500">Top 8 inspectores</Text>
-                  <BarChart
-                    className="mt-4 h-72"
-                    data={inspectorData}
-                    index="name"
-                    categories={['Cantidad']}
-                    colors={['blue']}
-                    valueFormatter={(v) => formatNumber(v)}
-                    showAnimation
-                  />
-                </Card>
-              </div>
+            <TabPanel>
+              {activeTab !== 2 ? null : loading ? (
+                <div className="flex items-center justify-center h-48"><Loader2 size={24} className="animate-spin text-slate-400" /></div>
+              ) : dashboardData ? (
+                <div className="mt-3">
+                  <OperacionalTab data={dashboardData.operacional} />
+                </div>
+              ) : null}
+            </TabPanel>
 
-              {/* Por Zona detallado */}
-              <Card>
-                <Title>Distribucion por Zona</Title>
-                <Text className="text-gray-500">Cantidad de inspecciones por zona</Text>
-                <BarChart
-                  className="mt-4 h-64"
-                  data={zonaData.map(z => ({ name: z.name, Inspecciones: z.value }))}
-                  index="name"
-                  categories={['Inspecciones']}
-                  colors={['cyan']}
-                  valueFormatter={(v) => formatNumber(v)}
-                  showAnimation
+            <TabPanel>
+              {activeTab !== 3 ? null : (
+                <DetalleTab
+                  drillFilters={drillFilters}
+                  setDrillFilters={setDrillFilters}
+                  zonas={zonas}
+                  comunas={comunas}
+                  inspectors={inspectors}
+                  estadosMedidor={estadosMedidor}
+                  globalFilters={{ zona: globalZona || null, mes: globalMes || null, anio: globalAnio || null }}
                 />
-              </Card>
-            </TabPanel>
-
-            {/* Tendencias Panel */}
-            <TabPanel>
-              {/* Evolucion Mensual */}
-              <Card className="mb-6">
-                <Title className="flex items-center gap-2">
-                  <TrendingUp size={20} className="text-blue-500" />
-                  Evolucion Mensual
-                </Title>
-                <Text className="text-gray-500">Inspecciones por mes</Text>
-                <AreaChart
-                  className="mt-4 h-64"
-                  data={evolucionData}
-                  index="mes"
-                  categories={['Total', 'Bien Ejecutados']}
-                  colors={['blue', 'emerald']}
-                  valueFormatter={(v) => formatNumber(v)}
-                  showAnimation
-                />
-              </Card>
-
-              {/* Rendimiento por Inspector */}
-              <Card>
-                <Title className="flex items-center gap-2">
-                  <Users size={20} className="text-blue-500" />
-                  Rendimiento por Inspector
-                </Title>
-                <Text className="text-gray-500">Tasa de bien ejecutado por inspector</Text>
-                <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {stats?.por_inspector.slice(0, 9).map(i => (
-                    <div key={i.inspector} className="p-4 bg-gray-50 rounded-lg">
-                      <p className="text-sm font-semibold text-gray-800 mb-2 truncate">{i.inspector}</p>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs text-gray-500">{formatNumber(i.cantidad)} insp.</span>
-                        <span className={`text-lg font-bold ${i.tasa_bien_ejecutado >= 80 ? 'text-emerald-600' : i.tasa_bien_ejecutado >= 60 ? 'text-amber-600' : 'text-rose-600'}`}>
-                          {i.tasa_bien_ejecutado}%
-                        </span>
-                      </div>
-                      <ProgressBar
-                        value={i.tasa_bien_ejecutado}
-                        color={i.tasa_bien_ejecutado >= 80 ? 'emerald' : i.tasa_bien_ejecutado >= 60 ? 'amber' : 'rose'}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            </TabPanel>
-
-            {/* Análisis Operacional Panel */}
-            <TabPanel>
-              {/* Alertas Operacionales */}
-              {analisisOp?.alertas && analisisOp.alertas.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                  {analisisOp.alertas.map((alerta, idx) => (
-                    <Card
-                      key={idx}
-                      decoration="left"
-                      decorationColor={alerta.tipo === 'danger' ? 'rose' : alerta.tipo === 'warning' ? 'amber' : 'blue'}
-                    >
-                      <Flex alignItems="start" className="gap-3">
-                        <div className={`p-2 rounded-lg ${
-                          alerta.tipo === 'danger' ? 'bg-rose-100' :
-                          alerta.tipo === 'warning' ? 'bg-amber-100' : 'bg-blue-100'
-                        }`}>
-                          <AlertOctagon className={
-                            alerta.tipo === 'danger' ? 'text-rose-600' :
-                            alerta.tipo === 'warning' ? 'text-amber-600' : 'text-blue-600'
-                          } size={20} />
-                        </div>
-                        <div>
-                          <Title className="text-base">{alerta.titulo}</Title>
-                          <Text className="mt-1">{alerta.mensaje}</Text>
-                        </div>
-                      </Flex>
-                    </Card>
-                  ))}
-                </div>
               )}
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                {/* Tiempos de Proceso */}
-                <Card>
-                  <Title className="flex items-center gap-2">
-                    <Clock size={20} className="text-blue-500" />
-                    Tiempos de Proceso
-                  </Title>
-                  <Text className="text-gray-500">Días promedio por etapa</Text>
-                  <div className="mt-4 space-y-3">
-                    <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
-                      <div>
-                        <span className="text-sm font-medium">Correo → Asignación</span>
-                        <p className="text-xs text-gray-500">Tiempo hasta asignar inspector</p>
-                      </div>
-                      <span className="text-lg font-bold text-blue-600">{analisisOp?.tiempos_proceso.correo_asignacion || 0} días</span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 bg-violet-50 rounded-lg">
-                      <div>
-                        <span className="text-sm font-medium">Asignación → Análisis</span>
-                        <p className="text-xs text-gray-500">Tiempo de análisis</p>
-                      </div>
-                      <span className="text-lg font-bold text-violet-600">{analisisOp?.tiempos_proceso.asignacion_analisis || 0} días</span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 bg-cyan-50 rounded-lg">
-                      <div>
-                        <span className="text-sm font-medium">Análisis → Inspección</span>
-                        <p className="text-xs text-gray-500">Tiempo hasta inspeccionar</p>
-                      </div>
-                      <span className="text-lg font-bold text-cyan-600">{analisisOp?.tiempos_proceso.analisis_inspeccion || 0} días</span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 bg-gray-100 rounded-lg border-2 border-gray-200">
-                      <div>
-                        <span className="text-sm font-bold">Total Proceso</span>
-                        <p className="text-xs text-gray-500">Promedio total</p>
-                      </div>
-                      <span className={`text-xl font-bold ${
-                        (analisisOp?.tiempos_proceso.total_dias || 0) <= 30 ? 'text-emerald-600' :
-                        (analisisOp?.tiempos_proceso.total_dias || 0) <= 60 ? 'text-amber-600' : 'text-rose-600'
-                      }`}>{analisisOp?.tiempos_proceso.total_dias || 0} días</span>
-                    </div>
-                  </div>
-                </Card>
-
-                {/* Casos Pendientes */}
-                <Card>
-                  <Title>Casos Pendientes y Estancados</Title>
-                  <Text className="text-gray-500">Estado de casos sin finalizar</Text>
-                  <div className="mt-4 grid grid-cols-2 gap-4">
-                    <div className="text-center p-4 bg-gray-50 rounded-lg">
-                      <p className="text-2xl font-bold text-gray-700">{analisisOp?.casos_pendientes.total || 0}</p>
-                      <p className="text-xs text-gray-500 mt-1">Total Casos</p>
-                    </div>
-                    <div className="text-center p-4 bg-amber-50 rounded-lg">
-                      <p className="text-2xl font-bold text-amber-600">{analisisOp?.casos_pendientes.sin_inspeccion || 0}</p>
-                      <p className="text-xs text-gray-500 mt-1">Sin Inspección</p>
-                    </div>
-                    <div className="text-center p-4 bg-orange-50 rounded-lg">
-                      <p className="text-2xl font-bold text-orange-600">{analisisOp?.casos_pendientes.asignados_sin_inspeccionar || 0}</p>
-                      <p className="text-xs text-gray-500 mt-1">Asignados {">"} 15 días</p>
-                    </div>
-                    <div className="text-center p-4 bg-red-50 rounded-lg">
-                      <p className="text-2xl font-bold text-red-600">{analisisOp?.casos_pendientes.estancados || 0}</p>
-                      <p className="text-xs text-gray-500 mt-1">Estancados {">"} 30 días</p>
-                    </div>
-                  </div>
-                </Card>
-              </div>
-
-              {/* Detalle de Resultados */}
-              <Card className="mb-6">
-                <Title>Detalle de Resultados de Inspección</Title>
-                <Text className="text-gray-500">Análisis de inspecciones realizadas</Text>
-                <div className="mt-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-                  <div className="text-center p-3 bg-gray-50 rounded-lg">
-                    <p className="text-xl font-bold text-gray-700">{analisisOp?.detalle_resultados.total || 0}</p>
-                    <p className="text-xs text-gray-500 mt-1">Total</p>
-                  </div>
-                  <div className="text-center p-3 bg-emerald-50 rounded-lg">
-                    <p className="text-xl font-bold text-emerald-600">{analisisOp?.detalle_resultados.bien_ejecutados || 0}</p>
-                    <p className="text-xs text-gray-500 mt-1">Bien Ejec.</p>
-                  </div>
-                  <div className="text-center p-3 bg-rose-50 rounded-lg">
-                    <p className="text-xl font-bold text-rose-600">{analisisOp?.detalle_resultados.mal_ejecutados || 0}</p>
-                    <p className="text-xs text-gray-500 mt-1">Mal Ejec.</p>
-                  </div>
-                  <div className="text-center p-3 bg-amber-50 rounded-lg">
-                    <p className="text-xl font-bold text-amber-600">{analisisOp?.detalle_resultados.medidor_no_encontrado || 0}</p>
-                    <p className="text-xs text-gray-500 mt-1">No Encontr.</p>
-                  </div>
-                  <div className="text-center p-3 bg-orange-50 rounded-lg">
-                    <p className="text-xl font-bold text-orange-600">{analisisOp?.detalle_resultados.medidor_diferente || 0}</p>
-                    <p className="text-xs text-gray-500 mt-1">Diferente</p>
-                  </div>
-                  <div className="text-center p-3 bg-violet-50 rounded-lg">
-                    <p className="text-xl font-bold text-violet-600">{analisisOp?.detalle_resultados.medidor_cruzado || 0}</p>
-                    <p className="text-xs text-gray-500 mt-1">Cruzado</p>
-                  </div>
-                  <div className="text-center p-3 bg-red-50 rounded-lg">
-                    <p className="text-xl font-bold text-red-600">{analisisOp?.detalle_resultados.sin_observacion || 0}</p>
-                    <p className="text-xs text-gray-500 mt-1">Sin Obs.</p>
-                  </div>
-                </div>
-              </Card>
-
-              {/* Cuellos de Botella */}
-              {analisisOp?.cuellos_botella && analisisOp.cuellos_botella.length > 0 && (
-                <Card className="mb-6">
-                  <Title>Cuellos de Botella por Etapa</Title>
-                  <Text className="text-gray-500">Casos estancados por etapa del proceso</Text>
-                  <Table className="mt-4">
-                    <TableHead>
-                      <TableRow>
-                        <TableHeaderCell>Etapa</TableHeaderCell>
-                        <TableHeaderCell className="text-right">Cantidad</TableHeaderCell>
-                        <TableHeaderCell className="text-right">Sin Inspección</TableHeaderCell>
-                        <TableHeaderCell className="text-right">% Estancado</TableHeaderCell>
-                        <TableHeaderCell className="text-right">Días Prom.</TableHeaderCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {analisisOp.cuellos_botella.slice(0, 10).map((c) => (
-                        <TableRow key={c.etapa}>
-                          <TableCell className="font-medium">{c.etapa}</TableCell>
-                          <TableCell className="text-right">{c.cantidad}</TableCell>
-                          <TableCell className="text-right text-amber-600">{c.sin_inspeccion}</TableCell>
-                          <TableCell className="text-right">
-                            <span className={c.pct_estancado >= 50 ? 'text-rose-600 font-medium' : c.pct_estancado >= 30 ? 'text-amber-600' : 'text-gray-600'}>
-                              {c.pct_estancado}%
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right">{c.dias_promedio}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </Card>
-              )}
-
-              {/* Ranking de Inspectores */}
-              <Card className="mb-6">
-                <Title>Ranking de Inspectores</Title>
-                <Text className="text-gray-500">Desempeño detallado por inspector</Text>
-                <Table className="mt-4">
-                  <TableHead>
-                    <TableRow>
-                      <TableHeaderCell>Inspector</TableHeaderCell>
-                      <TableHeaderCell className="text-right">Total</TableHeaderCell>
-                      <TableHeaderCell className="text-right">Bien Ejec.</TableHeaderCell>
-                      <TableHeaderCell className="text-right">Mal Ejec.</TableHeaderCell>
-                      <TableHeaderCell className="text-right">Tasa</TableHeaderCell>
-                      <TableHeaderCell className="text-right">Días Prom.</TableHeaderCell>
-                      <TableHeaderCell>Calidad Doc.</TableHeaderCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {analisisOp?.ranking_inspectores.slice(0, 10).map((i) => (
-                      <TableRow key={i.inspector}>
-                        <TableCell className="font-medium">{i.inspector}</TableCell>
-                        <TableCell className="text-right">{i.total}</TableCell>
-                        <TableCell className="text-right text-emerald-600">{i.bien_ejecutados}</TableCell>
-                        <TableCell className="text-right text-rose-600">{i.mal_ejecutados}</TableCell>
-                        <TableCell className="text-right">
-                          <span className={i.tasa_bien_ejecutado >= 80 ? 'text-emerald-600' : i.tasa_bien_ejecutado >= 60 ? 'text-amber-600' : 'text-rose-600'}>
-                            {i.tasa_bien_ejecutado}%
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">{i.dias_promedio}</TableCell>
-                        <TableCell>
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${
-                            i.calidad_doc === 'buena' ? 'bg-emerald-100 text-emerald-700' :
-                            i.calidad_doc === 'regular' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
-                          }`}>
-                            {i.calidad_doc}
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Card>
-
-              {/* Evolución de Tiempos */}
-              {analisisOp?.evolucion_tiempos && analisisOp.evolucion_tiempos.length > 0 && (
-                <Card>
-                  <Title>Evolución de Tiempos de Resolución</Title>
-                  <Text className="text-gray-500">Días promedio por mes</Text>
-                  <AreaChart
-                    className="mt-4 h-64"
-                    data={analisisOp.evolucion_tiempos.map(e => ({
-                      mes: e.periodo,
-                      'Días Promedio': e.dias_promedio,
-                      'Tasa Bien Ejec. (%)': e.tasa_bien,
-                    }))}
-                    index="mes"
-                    categories={['Días Promedio', 'Tasa Bien Ejec. (%)']}
-                    colors={['blue', 'emerald']}
-                    valueFormatter={(v) => v.toFixed(1)}
-                    showAnimation
-                  />
-                </Card>
-              )}
-            </TabPanel>
-
-            {/* Datos Panel */}
-            <TabPanel>
-              {/* Table Filters */}
-              <Card className="mb-4">
-                <Flex justifyContent="between" alignItems="end" className="flex-wrap gap-4">
-                  <div className="flex flex-wrap gap-3">
-                    <div className="w-56">
-                      <TextInput
-                        icon={Search}
-                        placeholder="Buscar cliente, direccion..."
-                        value={searchTerm}
-                        onChange={(e) => { setSearchTerm(e.target.value); setPage(1) }}
-                      />
-                    </div>
-                    <div className="w-48">
-                      <Select value={tableResultado} onValueChange={(v) => { setTableResultado(v); setPage(1) }} placeholder="Resultado">
-                        <SelectItem value="">Todos</SelectItem>
-                        <SelectItem value="TRABAJO BIEN EJECUTADO">Bien Ejecutado</SelectItem>
-                        <SelectItem value="TRABAJO MAL EJECUTADO">Mal Ejecutado</SelectItem>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button variant="secondary" size="sm" onClick={clearTableFilters}>
-                      <Filter size={14} />
-                      Limpiar
-                    </Button>
-                    <ExportDropdown
-                      onExport={handleExport}
-                      loading={exporting}
-                      loadingFormat={exporting ? exportFormat : null}
-                      totalRecords={data?.total}
-                      hasFilters={hasActiveFilters}
-                    />
-                  </div>
-                </Flex>
-              </Card>
-
-              {/* Data Table */}
-              <Card>
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableHeaderCell>Mes</TableHeaderCell>
-                      <TableHeaderCell>Fecha Insp.</TableHeaderCell>
-                      <TableHeaderCell>Num Cliente</TableHeaderCell>
-                      <TableHeaderCell>Direccion</TableHeaderCell>
-                      <TableHeaderCell>Comuna</TableHeaderCell>
-                      <TableHeaderCell>Zona</TableHeaderCell>
-                      <TableHeaderCell>Inspector</TableHeaderCell>
-                      <TableHeaderCell>Estado Medidor</TableHeaderCell>
-                      <TableHeaderCell>Resultado</TableHeaderCell>
-                      <TableHeaderCell>EEPP OCA</TableHeaderCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {data?.items.map((item, idx) => (
-                      <TableRow key={item.id || idx}>
-                        <TableCell>{item.mes || '-'}</TableCell>
-                        <TableCell>{item.fecha_inspeccion || '-'}</TableCell>
-                        <TableCell className="font-medium">{item.num_cliente || '-'}</TableCell>
-                        <TableCell className="text-gray-500 truncate max-w-[200px]">{item.direccion || '-'}</TableCell>
-                        <TableCell>{item.comuna || '-'}</TableCell>
-                        <TableCell>
-                          {item.zona ? <Badge color="blue">{item.zona}</Badge> : '-'}
-                        </TableCell>
-                        <TableCell className="text-gray-500 truncate max-w-[120px]">{item.inspector || '-'}</TableCell>
-                        <TableCell>{getEstadoBadge(item.estado_medidor)}</TableCell>
-                        <TableCell>{getResultadoBadge(item.resultado_inspeccion)}</TableCell>
-                        <TableCell className="text-gray-500">{item.eepp_oca || '-'}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-
-                {/* Pagination */}
-                {data && data.pages > 1 && (
-                  <Flex justifyContent="between" className="mt-4 pt-4 border-t">
-                    <Text className="text-sm text-gray-500">
-                      Pagina {data.page} de {data.pages} ({formatNumber(data.total)} registros)
-                    </Text>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => setPage(p => Math.max(1, p - 1))}
-                        disabled={page === 1}
-                      >
-                        Anterior
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => setPage(p => Math.min(data.pages, p + 1))}
-                        disabled={page === data.pages}
-                      >
-                        Siguiente
-                      </Button>
-                    </div>
-                  </Flex>
-                )}
-              </Card>
             </TabPanel>
           </TabPanels>
         </TabGroup>
-      </div>
+      </main>
     </div>
   )
 }

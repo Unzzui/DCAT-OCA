@@ -1,13 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Header } from '@/components/layout/Header'
 import {
-  Card,
-  Title,
-  Text,
-  Flex,
-  Grid,
   Table,
   TableHead,
   TableHeaderCell,
@@ -18,1306 +13,1889 @@ import {
   Select,
   SelectItem,
   TextInput,
-  DateRangePicker,
-  DateRangePickerItem,
-  DateRangePickerValue,
-  BarChart,
-  DonutChart,
-  AreaChart,
-  LineChart,
   Tab,
   TabGroup,
   TabList,
   TabPanel,
   TabPanels,
-  ProgressBar,
 } from '@tremor/react'
-import { Search, Filter, CheckCircle, XCircle, Users, Building, BarChart3, TrendingUp, TrendingDown, AlertTriangle, Info, AlertCircle, ExternalLink } from 'lucide-react'
+import {
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  AlertTriangle,
+  CheckCircle,
+  Loader2,
+  RefreshCw,
+  Maximize2,
+  Minimize2,
+  ExternalLink,
+} from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { ExportOverlay } from '@/components/ui/ExportOverlay'
 import { ExportDropdown } from '@/components/ui/ExportDropdown'
+import { EChart } from '@/components/ui/EChart'
+import { LeafletMap, getPointCategory, CATEGORY_COLORS } from '@/components/ui/LeafletMap'
+import type { MapPoint, MarkerCategory } from '@/components/ui/LeafletMap'
 import { formatNumber } from '@/lib/utils'
 import { api } from '@/lib/api'
-import { es } from 'date-fns/locale'
-import { startOfMonth, startOfYear, subDays } from 'date-fns'
 
-// Opciones de rango de fechas en español
-const dateRangeOptions = [
-  { value: 'today', text: 'Hoy', from: new Date(), to: new Date() },
-  { value: 'last7', text: 'Últimos 7 días', from: subDays(new Date(), 7), to: new Date() },
-  { value: 'last30', text: 'Últimos 30 días', from: subDays(new Date(), 30), to: new Date() },
-  { value: 'month', text: 'Este mes', from: startOfMonth(new Date()), to: new Date() },
-  { value: 'year', text: 'Este año', from: startOfYear(new Date()), to: new Date() },
-]
+import type {
+  OverviewData,
+  ContratistaData,
+  CausasData,
+  DetailItem,
+  DetailResponse,
+  DrillFilter,
+  KpiModalData,
+  MalEjecutadosData,
+  OcaData,
+  EjecucionStats,
+} from './types'
+import { pct, resultadoBadgeColor } from './helpers'
+import { CHART_COLORS, CONTRATISTA_COLORS, TOOLTIP_STYLE, GRID_STYLE, AXIS_STYLE, CATEGORY_AXIS, LEGEND_STYLE, BAR_RADIUS, BAR_RADIUS_H } from './chart-theme'
+import { HeroKpi, KpiCard, FeatureKpi, ProgressKpi } from './components/KpiCard'
+import { KpiModal } from './components/KpiModal'
+import { MapDetailModal } from './components/MapDetailModal'
+import { MedidoresCruzadosModal } from './components/MedidoresCruzadosModal'
+import { ContratistaModal } from './components/ContratistaModal'
+import { DayDetailModal } from './components/DayDetailModal'
+import { PresentationMode } from './components/PresentationMode'
+import { FilterChip } from './components/FilterChip'
+import MultiSelect from '@/components/ui/MultiSelect'
+import { useSidebar } from '@/contexts/SidebarContext'
 
-interface Stats {
-  total: number
-  efectivas: number
-  no_efectivas: number
-  bien_ejecutados: number
-  mal_ejecutados: number
-  tasa_efectividad: number
-  por_zona: Record<string, number>
-  por_inspector: Array<{ inspector: string; cantidad: number; efectividad: number }>
-  por_mes: Array<{ mes: string; cantidad: number; efectividad: number }>
-  con_multa: number
-  pendientes_normalizar: number
-  // Client metrics
-  cliente_conforme: { conforme: number; disconforme: number; sin_dato: number; sin_inspeccionar: number }
-  estado_empalme: Record<string, number>
-  cumple_norma_cc: { cumple: number; no_cumple: number; sin_dato: number; sin_inspeccionar: number }
-  // Evolution data
-  evolucion_mensual: Array<{
-    mes: string
-    total: number
-    efectivas: number
-    efectividad: number
-    bien_ejecutados: number
-    tasa_bien_ejecutado: number
-    cliente_conforme: number
-    tasa_conformidad: number
-    cumple_norma_cc: number
-    tasa_cumple_cc: number
-  }>
-  // Comparativas
-  comparativas: {
-    efectividad: { actual: number; anterior: number; diferencia: number }
-    bien_ejecutado: { actual: number; anterior: number; diferencia: number }
-    conformidad: { actual: number; anterior: number; diferencia: number }
-    cumple_norma_cc: { actual: number; anterior: number; diferencia: number }
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function getISOWeek(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7))
+  const week1 = new Date(d.getFullYear(), 0, 4)
+  const weekNum = 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7)
+  return `${d.getFullYear()}-W${String(weekNum).padStart(2, '0')}`
+}
+
+function getPeriodKey(fecha: string, view: 'mensual' | 'semanal' | 'diario'): string {
+  if (view === 'diario') return fecha.slice(0, 10)     // YYYY-MM-DD
+  if (view === 'semanal') return getISOWeek(fecha)       // YYYY-Wnn
+  return fecha.slice(0, 7)                               // YYYY-MM
+}
+
+function formatPeriodLabel(key: string, view: 'mensual' | 'semanal' | 'diario'): string {
+  if (view === 'diario') {
+    const [, m, d] = key.split('-')
+    return `${d}/${m}`
   }
-  // Top comunas problemáticas
-  top_comunas_problemas: Array<{
-    comuna: string
-    total: number
-    mal_ejecutados: number
-    tasa_mal_ejecutado: number
-    disconformes: number
-    no_cumple_norma: number
-    score_problemas: number
-  }>
-  // Insights
-  insights: Array<{
-    tipo: 'success' | 'warning' | 'info'
-    titulo: string
-    mensaje: string
-  }>
+  if (view === 'semanal') return key.replace('-W', '-S')
+  return key
 }
 
-interface InspeccionItem {
-  id: number
-  cliente: string
-  fecha_inspeccion: string
-  estado_efectividad: string
-  resultado_inspeccion: string
-  comuna: string
-  zona: string
-  inspector: string
-  multa: string
-  cliente_conforme: string
-  estado_empalme: string
-  cumple_norma_cc: string
-  link_formulario: string | null
+// ─── Section wrapper for consistent spacing ──────────────────────────────────
+
+function SectionTitle({ children, sub }: { children: React.ReactNode; sub?: string }) {
+  return (
+    <div className="mb-2">
+      <h3 className="text-xs font-semibold text-slate-700 tracking-tight">{children}</h3>
+      {sub && <p className="text-[10px] text-slate-400 mt-0.5">{sub}</p>}
+    </div>
+  )
 }
 
-interface PaginatedResponse {
-  items: InspeccionItem[]
-  total: number
-  page: number
-  limit: number
-  pages: number
+function ChartCard({ children, title, sub, className = '' }: { children: React.ReactNode; title?: string; sub?: string; className?: string }) {
+  return (
+    <div className={`bg-white rounded-lg border border-slate-200/60 shadow-sm px-4 py-3 ${className}`}>
+      {title && <SectionTitle sub={sub}>{title}</SectionTitle>}
+      {children}
+    </div>
+  )
 }
 
-const META_EFECTIVIDAD = 90
+function EmptyState({ text }: { text: string }) {
+  return <div className="flex items-center justify-center h-36 text-slate-400 text-[11px] tracking-wide">{text}</div>
+}
 
-const MESES = [
-  { value: 1, label: 'Enero' },
-  { value: 2, label: 'Febrero' },
-  { value: 3, label: 'Marzo' },
-  { value: 4, label: 'Abril' },
-  { value: 5, label: 'Mayo' },
-  { value: 6, label: 'Junio' },
-  { value: 7, label: 'Julio' },
-  { value: 8, label: 'Agosto' },
-  { value: 9, label: 'Septiembre' },
-  { value: 10, label: 'Octubre' },
-  { value: 11, label: 'Noviembre' },
-  { value: 12, label: 'Diciembre' },
-]
+function detailToMapPoint(item: DetailItem): MapPoint {
+  return {
+    lat: 0, lng: 0,
+    resultado: item.resultado_inspeccion || item.resultado,
+    zona: item.zona,
+    comuna: item.comuna,
+    contratista: item.contratista_enel || item.contratista,
+    vta: item.vta,
+    cliente: item.cliente || item.nombre_cliente,
+    inspector: item.inspector,
+    tipo_trabajo: item.tipo_inspeccion || item.tipo_trabajo,
+    multa: item.multa,
+    causa: item.categoria_mal_ejecutado || item.causa,
+    direccion: item.direccion,
+    n_medidor: item.n_medidor,
+    estado_efectividad: item.estado_efectividad,
+    observaciones_multa: item.observaciones_multa,
+    fecha: item.fecha_inspeccion || item.fecha,
+    link_formulario: item.link_formulario,
+  }
+}
 
-export default function InformeNNCCPage() {
-  // Global filters
-  const [globalZona, setGlobalZona] = useState('')
-  const [globalBase, setGlobalBase] = useState('')
-  const [globalMes, setGlobalMes] = useState('')
-  const [globalAnio, setGlobalAnio] = useState('')
-  const [periodos, setPeriodos] = useState<{ meses: number[]; anios: number[]; ultimo_mes: number | null; ultimo_anio: number | null }>({ meses: [], anios: [], ultimo_mes: null, ultimo_anio: null })
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
-  // Table filters
-  const [dateRange, setDateRange] = useState<DateRangePickerValue>({})
-  const [inspector, setInspector] = useState('')
-  const [searchTerm, setSearchTerm] = useState('')
-  const [page, setPage] = useState(1)
-
-  // Data
-  const [stats, setStats] = useState<Stats | null>(null)
-  const [data, setData] = useState<PaginatedResponse | null>(null)
-  const [zonas, setZonas] = useState<string[]>([])
+export default function NuevasConexionesPage() {
+  const { isReportMode, setNormal } = useSidebar()
+  const [selectedBase, setSelectedBase] = useState<string>('')
   const [bases, setBases] = useState<string[]>([])
-  const [inspectors, setInspectors] = useState<Array<{ inspector: string; cantidad: number; efectividad: number }>>([])
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [exporting, setExporting] = useState(false)
-  const [exportFormat, setExportFormat] = useState<'excel' | 'csv'>('excel')
+  const [basesLoading, setBasesLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState(0)
+  const [selectedZona, setSelectedZona] = useState<string>('')
+  const [zonas, setZonas] = useState<string[]>([])
 
-  const fetchPeriodos = useCallback(async () => {
-    try {
-      const response = await api.get<{ meses: number[]; anios: number[]; ultimo_mes: number | null; ultimo_anio: number | null }>('/api/v1/nuevas-conexiones/periodos')
-      setPeriodos(response)
-      return response
-    } catch (error) {
-      console.error('Error fetching periodos:', error)
-      return null
-    }
-  }, [])
+  const [overviewData, setOverviewData] = useState<OverviewData | null>(null)
+  const [dashboardLoading, setDashboardLoading] = useState(false)
+  const [dashboardError, setDashboardError] = useState<string | null>(null)
 
-  const fetchStats = useCallback(async () => {
-    try {
-      const params = new URLSearchParams()
-      if (globalZona) params.append('zona', globalZona)
-      if (globalBase) params.append('base', globalBase)
-      if (globalMes) params.append('mes', globalMes)
-      if (globalAnio) params.append('anio', globalAnio)
+  const [contratistaData, setContratistaData] = useState<ContratistaData | null>(null)
 
-      const url = `/api/v1/nuevas-conexiones/stats${params.toString() ? '?' + params.toString() : ''}`
-      const response = await api.get<Stats>(url)
-      setStats(response)
-    } catch (error) {
-      console.error('Error fetching stats:', error)
-    }
-  }, [globalZona, globalBase, globalMes, globalAnio])
+  const [causasData, setCausasData] = useState<CausasData | null>(null)
 
-  const fetchData = useCallback(async () => {
-    try {
-      const params = new URLSearchParams()
-      params.append('page', page.toString())
-      params.append('limit', '10')
-      if (searchTerm) params.append('search', searchTerm)
-      if (globalZona) params.append('zona', globalZona)
-      if (globalBase) params.append('base', globalBase)
-      if (globalMes) params.append('mes', globalMes)
-      if (globalAnio) params.append('anio', globalAnio)
-      if (inspector) params.append('inspector', inspector)
-      if (dateRange.from) params.append('fecha_desde', dateRange.from.toISOString().split('T')[0])
-      if (dateRange.to) params.append('fecha_hasta', dateRange.to.toISOString().split('T')[0])
+  const [drillFilters, setDrillFilters] = useState<DrillFilter[]>([])
+  const [detailSearch, setDetailSearch] = useState('')
+  const [detailPage, setDetailPage] = useState(1)
+  const [detailData, setDetailData] = useState<DetailResponse | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [exportLoading, setExportLoading] = useState(false)
+  const [exportLoadingFormat, setExportLoadingFormat] = useState<'excel' | 'csv' | null>(null)
 
-      const response = await api.get<PaginatedResponse>(`/api/v1/nuevas-conexiones?${params.toString()}`)
-      setData(response)
-    } catch (error) {
-      console.error('Error fetching data:', error)
-    }
-  }, [page, searchTerm, globalZona, globalBase, globalMes, globalAnio, inspector, dateRange])
+  const [mapaPoints, setMapaPoints] = useState<MapPoint[]>([])
+  const [mapaLoading, setMapaLoading] = useState(false)
 
-  const fetchZonas = useCallback(async () => {
-    try {
-      const response = await api.get<string[]>('/api/v1/nuevas-conexiones/zonas')
-      setZonas(response)
-    } catch (error) {
-      console.error('Error fetching zonas:', error)
-    }
-  }, [])
+  const [kpiModalData, setKpiModalData] = useState<KpiModalData | null>(null)
+  const [activeModal, setActiveModal] = useState<string | null>(null)
 
-  const fetchBases = useCallback(async () => {
-    try {
-      const response = await api.get<string[]>('/api/v1/nuevas-conexiones/bases')
-      setBases(response)
-    } catch (error) {
-      console.error('Error fetching bases:', error)
-    }
-  }, [])
+  const [malEjecutadosData, setMalEjecutadosData] = useState<MalEjecutadosData | null>(null)
 
-  const fetchInspectors = useCallback(async () => {
-    try {
-      const response = await api.get<Array<{ inspector: string; cantidad: number; efectividad: number }>>('/api/v1/nuevas-conexiones/inspectors')
-      setInspectors(response)
-    } catch (error) {
-      console.error('Error fetching inspectors:', error)
-    }
-  }, [])
+  const [ocaData, setOcaData] = useState<OcaData | null>(null)
 
-  const renderCount = useRef(0)
+  const [selectedMapPoint, setSelectedMapPoint] = useState<MapPoint | null>(null)
+  const [selectedContratista, setSelectedContratista] = useState<string | null>(null)
+  const [showMedidoresCruzados, setShowMedidoresCruzados] = useState(false)
+  // Map always shows only inspected records (with link_formulario)
+  const [mapExpanded, setMapExpanded] = useState(false)
+  const [tendenciaView, setTendenciaView] = useState<'mensual' | 'semanal' | 'diario'>('diario')
+  const [ocaTendenciaView, setOcaTendenciaView] = useState<'mensual' | 'semanal' | 'diario'>('diario')
+  const [selectedDay, setSelectedDay] = useState<string | null>(null) // YYYY-MM-DD for day detail modal
+  const [mapCategoryFilter, setMapCategoryFilter] = useState<Set<MarkerCategory>>(() => new Set<MarkerCategory>(['bien', 'mal', 'no_efectiva', 'pendiente']))
+  const [ejecucionStats, setEjecucionStats] = useState<EjecucionStats | null>(null)
+
+  // ─── Data loaders ─────────────────────────────────────────────────────────
 
   useEffect(() => {
-    const loadAll = async () => {
-      setLoading(true)
-      const [, , , periodosRes] = await Promise.all([fetchZonas(), fetchBases(), fetchInspectors(), fetchPeriodos()])
-
-      const initMes = periodosRes?.ultimo_mes ? String(periodosRes.ultimo_mes) : ''
-      const initAnio = periodosRes?.ultimo_anio ? String(periodosRes.ultimo_anio) : ''
-
-      const statsParams = new URLSearchParams()
-      if (initMes) statsParams.append('mes', initMes)
-      if (initAnio) statsParams.append('anio', initAnio)
-
-      const dataParams = new URLSearchParams()
-      dataParams.append('page', '1')
-      dataParams.append('limit', '10')
-      if (initMes) dataParams.append('mes', initMes)
-      if (initAnio) dataParams.append('anio', initAnio)
-
-      const [statsRes, dataRes] = await Promise.all([
-        api.get<Stats>(`/api/v1/nuevas-conexiones/stats${statsParams.toString() ? '?' + statsParams.toString() : ''}`),
-        api.get<PaginatedResponse>(`/api/v1/nuevas-conexiones?${dataParams.toString()}`),
-      ])
-      setStats(statsRes)
-      setData(dataRes)
-      setGlobalMes(initMes)
-      setGlobalAnio(initAnio)
-      setLoading(false)
+    async function loadInitial() {
+      setBasesLoading(true)
+      try {
+        const [basesData, zonasData] = await Promise.all([
+          api.get<string[]>('/api/v1/nuevas-conexiones/dashboard/bases'),
+          api.get<string[]>('/api/v1/nuevas-conexiones/zonas'),
+        ])
+        setBases(basesData)
+        setZonas(zonasData)
+        if (basesData.length > 0) setSelectedBase(basesData[basesData.length - 1])
+      } catch { setBases([]); setZonas([]) }
+      finally { setBasesLoading(false) }
     }
-    loadAll()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    loadInitial()
   }, [])
 
-  useEffect(() => {
-    if (renderCount.current < 2) {
-      renderCount.current++
-      return
-    }
-    const doRefresh = async () => {
-      setRefreshing(true)
-      await Promise.all([fetchStats(), fetchData()])
-      setRefreshing(false)
-    }
-    doRefresh()
-  }, [fetchStats, fetchData])
+  // ─── Data loading (depends directly on selectedBase) ──────────────────────
 
-  const getStatusBadge = (status: string) => {
-    if (!status) return <span className="text-gray-400">-</span>
-    const isEfectiva = status.toUpperCase().includes('EFECTIVA') && !status.toUpperCase().includes('NO EFECTIVA')
-    return (
-      <span className={`inline-flex items-center gap-1 text-sm ${isEfectiva ? 'text-emerald-600' : 'text-red-600'}`}>
-        {isEfectiva ? <CheckCircle size={14} /> : <XCircle size={14} />}
-        {isEfectiva ? 'Efectiva' : 'No Efectiva'}
-      </span>
-    )
-  }
-
-  const getResultadoBadge = (resultado: string) => {
-    if (!resultado) return <span className="text-gray-400">-</span>
-    const isBien = resultado.toUpperCase().includes('BIEN')
-    return (
-      <span className={`text-sm ${isBien ? 'text-emerald-600' : 'text-amber-600'}`}>
-        {isBien ? 'Bien' : 'Mal'}
-      </span>
-    )
-  }
-
-  const clearFilters = () => {
-    setSearchTerm('')
-    setInspector('')
-    setDateRange({})
-    setPage(1)
-  }
-
-  const clearGlobalFilters = () => {
-    setGlobalZona('')
-    setGlobalBase('')
-    setGlobalMes('')
-    setGlobalAnio('')
-  }
-
-  const hasActiveFilters = Boolean(globalZona || globalBase || globalMes || globalAnio || inspector || searchTerm || dateRange.from || dateRange.to)
-
-  const handleExport = async (format: 'csv' | 'excel') => {
+  const loadDashboard = useCallback(async (base: string) => {
+    setDashboardLoading(true); setDashboardError(null)
     try {
-      setExportFormat(format)
-      setExporting(true)
-      const params: Record<string, string | undefined> = {
-        format,
-        zona: globalZona || undefined,
-        base: globalBase || undefined,
-        mes: globalMes || undefined,
-        anio: globalAnio || undefined,
-        inspector: inspector || undefined,
-        search: searchTerm || undefined,
-        fecha_desde: dateRange.from ? dateRange.from.toISOString().split('T')[0] : undefined,
-        fecha_hasta: dateRange.to ? dateRange.to.toISOString().split('T')[0] : undefined,
+      const params: Record<string, string> = {}
+      if (base) params.base = base
+      const all = await api.get<{
+        overview: OverviewData
+        contratistas: ContratistaData
+        causas: CausasData
+        kpi_modals: KpiModalData
+        mal_ejecutados: MalEjecutadosData
+        oca: OcaData
+      }>('/api/v1/nuevas-conexiones/dashboard/all', params, { noCache: true })
+      setOverviewData(all.overview)
+      setContratistaData(all.contratistas)
+      setCausasData(all.causas)
+      setKpiModalData(all.kpi_modals)
+      setMalEjecutadosData(all.mal_ejecutados)
+      setOcaData(all.oca)
+      // Load ejecucion stats (non-blocking)
+      if (base) {
+        api.get<EjecucionStats>('/api/v1/nuevas-conexiones/dashboard/ejecucion-stats', { base })
+          .then(setEjecucionStats)
+          .catch(() => setEjecucionStats(null))
+      } else {
+        setEjecucionStats(null)
       }
-      const filename = format === 'excel' ? 'informe_nncc.xlsx' : 'informe_nncc.csv'
-      await api.downloadFile('/api/v1/nuevas-conexiones/export', filename, params)
-    } catch (error) {
-      console.error('Error exporting:', error)
-      alert('Error al exportar los datos')
-    } finally {
-      setExporting(false)
+    } catch (e: unknown) { setDashboardError(e instanceof Error ? e.message : 'Error al cargar') }
+    finally { setDashboardLoading(false) }
+  }, [])
+
+  const loadMapaData = useCallback(async (base: string) => {
+    setMapaLoading(true)
+    try {
+      const params: Record<string, string> = {}
+      if (base) params.base = base
+      setMapaPoints(await api.get<MapPoint[]>('/api/v1/nuevas-conexiones/dashboard/mapa', params, { noCache: true }))
+    } catch { setMapaPoints([]) }
+    finally { setMapaLoading(false) }
+  }, [])
+
+  // Split "resultado" drill filter: "No Efectiva" goes to estado_efectividad, the rest to resultado_inspeccion
+  const applyDrillFilters = useCallback((params: Record<string, string | number>) => {
+    drillFilters.forEach((f) => {
+      if (f.key === 'resultado') {
+        const vals = f.value.split(',').map(v => v.trim()).filter(Boolean)
+        const estadoVals = vals.filter(v => v.toLowerCase().includes('efectiva'))
+        const resultadoVals = vals.filter(v => !v.toLowerCase().includes('efectiva'))
+        if (resultadoVals.length) params.resultado = resultadoVals.join(',')
+        if (estadoVals.length) params.estado = estadoVals.join(',')
+      } else {
+        params[f.key] = f.value
+      }
+    })
+  }, [drillFilters])
+
+  const loadDetail = useCallback(async () => {
+    setDetailLoading(true)
+    try {
+      const params: Record<string, string | number> = { page: detailPage, limit: 20 }
+      if (selectedBase) params.base = selectedBase
+      if (selectedZona) params.zona = selectedZona
+      if (detailSearch) params.search = detailSearch
+      applyDrillFilters(params)
+      setDetailData(await api.get<DetailResponse>('/api/v1/nuevas-conexiones/', params))
+    } catch { setDetailData(null) }
+    finally { setDetailLoading(false) }
+  }, [selectedBase, selectedZona, detailPage, detailSearch, applyDrillFilters])
+
+  // ─── Effects ──────────────────────────────────────────────────────────────
+
+  // Reload ALL data when base changes — direct dependency, no indirection
+  useEffect(() => {
+    if (!basesLoading) {
+      loadDashboard(selectedBase)
+      loadMapaData(selectedBase)
     }
-  }
+  }, [selectedBase, basesLoading, loadDashboard, loadMapaData])
 
-  const zonaChartData = stats ? Object.entries(stats.por_zona).map(([name, value]) => ({
-    name,
-    value: value as number
-  })) : []
+  // Detail tab loads separately (depends on page/filters)
+  useEffect(() => { if (!basesLoading && activeTab === 4) loadDetail() }, [loadDetail, basesLoading, activeTab])
+  useEffect(() => { setDetailPage(1) }, [selectedBase, selectedZona, detailSearch, drillFilters])
 
-  const inspectorChartData = stats?.por_inspector.slice(0, 10).map(i => ({
-    inspector: i.inspector,
-    cantidad: i.cantidad,
-    efectividad: i.efectividad
-  })) || []
+  // ─── Drill-through ────────────────────────────────────────────────────────
 
-  const mensualChartData = stats?.por_mes.map(m => ({
-    mes: m.mes,
-    cantidad: m.cantidad,
-    efectividad: m.efectividad,
-    meta: META_EFECTIVIDAD
-  })) || []
+  const addDrillFilter = useCallback((key: string, label: string, value: string) => {
+    setDrillFilters((prev) => {
+      const existing = prev.find((f) => f.key === key)
+      if (existing) return prev.map((f) => (f.key === key ? { key, label, value } : f))
+      return [...prev, { key, label, value }]
+    })
+    setActiveTab(4)
+  }, [])
 
-  // Color mapping for consistent chart colors
-  const colorMap: Record<string, string> = {
-    'Conforme': 'emerald',
-    'Disconforme': 'rose',
-    'Cumple': 'emerald',
-    'No Cumple': 'rose',
-    'Sin Dato': 'slate',
-    'Sin Inspeccionar': 'zinc',
-    'Efectiva': 'emerald',
-    'No Efectiva': 'rose',
-  }
+  const removeDrillFilter = useCallback((key: string) => { setDrillFilters((prev) => prev.filter((f) => f.key !== key)) }, [])
+  const clearAllFilters = useCallback(() => { setDrillFilters([]); setDetailSearch('') }, [])
 
-  // Helper to get colors array based on data order
-  const getColorsForData = (data: Array<{ name: string }>) => {
-    return data.map(d => colorMap[d.name] || 'gray')
-  }
+  const handleExport = useCallback(async (format: 'excel' | 'csv') => {
+    setExportLoading(true); setExportLoadingFormat(format)
+    try {
+      const params: Record<string, string | number> = {}
+      if (selectedBase) params.base = selectedBase
+      applyDrillFilters(params)
+      if (detailSearch) params.search = detailSearch
+      await api.downloadFile('/api/v1/nuevas-conexiones/export', `nuevas-conexiones.${format === 'excel' ? 'xlsx' : 'csv'}`, { ...params, format })
+    } finally { setExportLoading(false); setExportLoadingFormat(null) }
+  }, [selectedBase, applyDrillFilters, detailSearch])
 
-  // Efectividad OCA data
-  const efectividadOCAData = stats ? [
-    { name: 'Efectiva', value: stats.efectivas },
-    { name: 'No Efectiva', value: stats.no_efectivas },
-  ].filter(d => d.value > 0) : []
+  // ─── Deltas vs previous period ─────────────────────────────────────────
+  const deltas = useMemo(() => {
+    const t = overviewData?.tendencia_temporal
+    if (!t || t.length < 2) return null
+    const curr = t[t.length - 1]
+    const prev = t[t.length - 2]
+    const prevTasa = prev.tasa_mal
+    const currTasa = curr.tasa_mal
+    return {
+      tasa_mal: currTasa - prevTasa,
+      periodo: curr.periodo,
+    }
+  }, [overviewData])
 
-  // Client metrics chart data - keep all values for consistent colors
-  const clienteConformeData = stats ? [
-    { name: 'Conforme', value: stats.cliente_conforme.conforme },
-    { name: 'Disconforme', value: stats.cliente_conforme.disconforme },
-    { name: 'Sin Dato', value: stats.cliente_conforme.sin_dato },
-    { name: 'Sin Inspeccionar', value: stats.cliente_conforme.sin_inspeccionar },
-  ].filter(d => d.value > 0) : []
+  // Filter map points with medidores cruzados findings
+  const medidoresCruzadosPoints = useMemo(() => {
+    return mapaPoints.filter(p => p.causa && p.causa.toUpperCase().includes('CRUZADO'))
+  }, [mapaPoints])
 
-  const estadoEmpalmeData = stats ? Object.entries(stats.estado_empalme).map(([name, value]) => ({
-    name,
-    value: value as number
-  })).sort((a, b) => b.value - a.value) : []
+  // ─── Zona-filtered data (computed client-side from mapa points) ──────────
 
-  const cumpleNormaCCData = stats ? [
-    { name: 'Cumple', value: stats.cumple_norma_cc.cumple },
-    { name: 'No Cumple', value: stats.cumple_norma_cc.no_cumple },
-    { name: 'Sin Dato', value: stats.cumple_norma_cc.sin_dato },
-    { name: 'Sin Inspeccionar', value: stats.cumple_norma_cc.sin_inspeccionar },
-  ].filter(d => d.value > 0) : []
+  const zonaContratistaData = useMemo<ContratistaData | null>(() => {
+    if (!selectedZona) return contratistaData
+    const pts = mapaPoints.filter(p => p.zona === selectedZona)
+    if (!pts.length) return contratistaData
+    const byC = new Map<string, { insp: number; mal: number; multas: number }>()
+    for (const p of pts) {
+      const c = p.contratista || 'Sin contratista'
+      const e = byC.get(c) || { insp: 0, mal: 0, multas: 0 }
+      e.insp++
+      if (p.resultado?.toUpperCase().includes('MAL')) e.mal++
+      if (p.multa?.toUpperCase() === 'SI') e.multas++
+      byC.set(c, e)
+    }
+    const ranking = Array.from(byC.entries()).map(([contratista, s]) => ({
+      contratista,
+      inspecciones: s.insp,
+      mal_ejecutado: s.mal,
+      tasa_mal: s.insp > 0 ? (s.mal / s.insp) * 100 : 0,
+      multas: s.multas,
+      tasa_multas: s.insp > 0 ? (s.multas / s.insp) * 100 : 0,
+      pend_norm: 0,
+      tasa_cierre: 0,
+    })).sort((a, b) => b.tasa_mal - a.tasa_mal)
+    return {
+      ranking_contratistas: ranking,
+      scatter_contratistas: ranking.map(r => ({ contratista: r.contratista, volumen: r.inspecciones, tasa_mal: r.tasa_mal, multas: r.multas })),
+    }
+  }, [selectedZona, mapaPoints, contratistaData])
 
-  // Base for percentages = EFECTIVAS (inspections actually performed)
-  const totalEfectivas = stats?.efectivas || 0
+  const zonaMalEjecutadosData = useMemo<MalEjecutadosData | null>(() => {
+    if (!selectedZona) return malEjecutadosData
+    const pts = mapaPoints.filter(p => p.zona === selectedZona)
+    if (!pts.length) return malEjecutadosData
+    const malPts = pts.filter(p => p.resultado?.toUpperCase().includes('MAL'))
+    const totalMal = malPts.length
+    if (totalMal === 0) return { total_mal: 0, causas_individuales: [], causas_por_zona: [], causas_por_contratista: [], mal_por_mes: [] }
+    // Causas individuales (pipe-separated in causa field)
+    const causaCounts = new Map<string, number>()
+    for (const p of malPts) {
+      const causas = (p.causa || '').split('|').map(c => c.trim()).filter(Boolean)
+      for (const c of causas) causaCounts.set(c, (causaCounts.get(c) || 0) + 1)
+    }
+    const totalHallazgos = Array.from(causaCounts.values()).reduce((a, b) => a + b, 0)
+    let acum = 0
+    const causasInd = Array.from(causaCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([causa, cantidad]) => {
+        acum += cantidad
+        return { causa, cantidad, pct: totalHallazgos > 0 ? (cantidad / totalHallazgos) * 100 : 0, acumulado_pct: totalHallazgos > 0 ? (acum / totalHallazgos) * 100 : 0 }
+      })
+    // Por contratista
+    const byC = new Map<string, Map<string, number>>()
+    for (const p of malPts) {
+      const c = p.contratista || 'Sin contratista'
+      if (!byC.has(c)) byC.set(c, new Map())
+      const causas = (p.causa || '').split('|').map(s => s.trim()).filter(Boolean)
+      for (const ca of causas) byC.get(c)!.set(ca, (byC.get(c)!.get(ca) || 0) + 1)
+    }
+    const causasPorContratista = Array.from(byC.entries()).map(([contratista, cm]) => ({
+      contratista,
+      total_mal: malPts.filter(p => (p.contratista || 'Sin contratista') === contratista).length,
+      causas: Array.from(cm.entries()).sort((a, b) => b[1] - a[1]).map(([causa, cantidad]) => ({ causa, cantidad })),
+    })).sort((a, b) => b.total_mal - a.total_mal)
+    return {
+      total_mal: totalMal,
+      causas_individuales: causasInd,
+      causas_por_zona: [{ zona: selectedZona, total_mal: totalMal, causas: causasInd.slice(0, 5).map(c => ({ causa: c.causa, cantidad: c.cantidad })) }],
+      causas_por_contratista: causasPorContratista,
+      mal_por_mes: [],
+    }
+  }, [selectedZona, mapaPoints, malEjecutadosData])
 
-  // Calculate totals for percentages (only items with actual response, not S/N or empty)
-  const totalClienteConRespuesta = stats ?
-    stats.cliente_conforme.conforme + stats.cliente_conforme.disconforme : 0
-  const totalNormaCCConRespuesta = stats ?
-    stats.cumple_norma_cc.cumple + stats.cumple_norma_cc.no_cumple : 0
+  // Zona-filtered tendencia temporal (derived from mapaPoints)
+  // When view is 'mensual' and no zona selected, use pre-calculated backend data
+  const zonaTendencia = useMemo(() => {
+    if (!selectedZona && tendenciaView === 'mensual') return overviewData?.tendencia_temporal ?? []
+    // For semanal/diario or zona-filtered: compute from mapaPoints
+    const pts = selectedZona
+      ? mapaPoints.filter(p => p.zona === selectedZona && p.fecha)
+      : mapaPoints.filter(p => p.fecha)
+    if (!pts.length) return []
+    const byPeriod = new Map<string, { total: number; mal: number }>()
+    for (const p of pts) {
+      const key = getPeriodKey(p.fecha!, tendenciaView)
+      const e = byPeriod.get(key) || { total: 0, mal: 0 }
+      e.total++
+      if (p.resultado?.toUpperCase().includes('MAL')) e.mal++
+      byPeriod.set(key, e)
+    }
+    return Array.from(byPeriod.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([periodo, s]) => ({
+        periodo,
+        total: s.total,
+        mal_ejecutado: s.mal,
+        tasa_mal: s.total > 0 ? Math.round((s.mal / s.total) * 10000) / 100 : 0,
+      }))
+  }, [selectedZona, mapaPoints, overviewData, tendenciaView])
 
-  // Evolution chart data with Meta line
-  const evolucionData = stats?.evolucion_mensual.map(m => ({
-    mes: m.mes,
-    'Efectividad': m.efectividad,
-    'Bien Ejecutado': m.tasa_bien_ejecutado,
-    'Conformidad': m.tasa_conformidad,
-    'Cumple Norma CC': m.tasa_cumple_cc,
-    'Meta': META_EFECTIVIDAD,
-  })) || []
+  // Last inspection date (for "Actualizado al" label)
+  const lastInspectionDate = useMemo(() => {
+    const pts = selectedZona ? mapaPoints.filter(p => p.zona === selectedZona) : mapaPoints
+    let max = ''
+    for (const p of pts) {
+      if (p.fecha && p.fecha > max) max = p.fecha
+    }
+    if (!max) return null
+    const [y, m, d] = max.slice(0, 10).split('-')
+    return `${d}/${m}/${y}`
+  }, [mapaPoints, selectedZona])
 
-  const calcPercentage = (value: number, total: number) => {
-    if (!total) return 0
-    return ((value / total) * 100).toFixed(1)
-  }
+  // Zona-filtered top comunas problematicas (derived from mapaPoints)
+  const zonaTopComunas = useMemo(() => {
+    if (!selectedZona) return overviewData?.top_comunas_problemas ?? []
+    const pts = mapaPoints.filter(p => p.zona === selectedZona)
+    if (!pts.length) return []
+    const byComuna = new Map<string, { total: number; mal: number }>()
+    for (const p of pts) {
+      const c = p.comuna || 'Sin comuna'
+      const e = byComuna.get(c) || { total: 0, mal: 0 }
+      e.total++
+      if (p.resultado?.toUpperCase().includes('MAL')) e.mal++
+      byComuna.set(c, e)
+    }
+    return Array.from(byComuna.entries())
+      .map(([comuna, s]) => ({
+        comuna,
+        total: s.total,
+        mal_ejecutado: s.mal,
+        tasa_mal: s.total > 0 ? Math.round((s.mal / s.total) * 10000) / 100 : 0,
+      }))
+      .filter(c => c.mal_ejecutado > 0)
+      .sort((a, b) => b.tasa_mal - a.tasa_mal)
+      .slice(0, 5)
+  }, [selectedZona, mapaPoints, overviewData])
 
-  if (loading) {
+  // ─── Chart options ────────────────────────────────────────────────────────
+
+  const tendenciaOption = useMemo(() => {
+    if (!zonaTendencia.length) return {}
+    const d = zonaTendencia
+    const lastIdx = d.length - 1
+    return {
+      tooltip: { ...TOOLTIP_STYLE, trigger: 'axis' as const, axisPointer: { type: 'cross' as const, crossStyle: { color: '#94a3b8' } } },
+      legend: { ...LEGEND_STYLE, data: ['Total', 'Mal Ejecutado', '% Tasa Mal'] },
+      grid: { ...GRID_STYLE, bottom: tendenciaView === 'diario' && d.length > 30 ? 68 : GRID_STYLE.bottom },
+      xAxis: { type: 'category' as const, data: d.map(i => formatPeriodLabel(i.periodo, tendenciaView)), ...CATEGORY_AXIS, axisLabel: { ...CATEGORY_AXIS.axisLabel, rotate: tendenciaView === 'diario' ? 45 : 0 } },
+      yAxis: [
+        { type: 'value' as const, ...AXIS_STYLE, nameTextStyle: { fontSize: 10, color: '#94a3b8' } },
+        { type: 'value' as const, ...AXIS_STYLE, min: 0, max: 100, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: '{value}%' } },
+      ],
+      dataZoom: tendenciaView === 'diario' && d.length > 30 ? [
+        { type: 'inside', start: Math.max(0, 100 - (30 / d.length) * 100), end: 100 },
+        { type: 'slider', height: 18, bottom: 22, borderColor: '#e2e8f0', fillerColor: 'rgba(71,85,105,0.08)', handleSize: '60%', textStyle: { fontSize: 10, color: '#94a3b8' } },
+      ] : undefined,
+      series: [
+        {
+          name: 'Total', type: 'bar' as const, barMaxWidth: 32,
+          data: d.map((i, idx) => ({
+            value: i.total,
+            itemStyle: { color: idx === lastIdx ? '#334155' : CHART_COLORS.primary, borderRadius: BAR_RADIUS },
+          })),
+        },
+        {
+          name: 'Mal Ejecutado', type: 'bar' as const, barMaxWidth: 32,
+          data: d.map((i, idx) => ({
+            value: i.mal_ejecutado,
+            itemStyle: { color: idx === lastIdx ? '#991b1b' : CHART_COLORS.danger, borderRadius: BAR_RADIUS },
+          })),
+        },
+        {
+          name: '% Tasa Mal', type: 'line' as const, yAxisIndex: 1,
+          data: d.map(i => i.tasa_mal),
+          smooth: true,
+          lineStyle: { color: CHART_COLORS.danger, width: 2.5 },
+          itemStyle: { color: CHART_COLORS.danger },
+          symbol: 'circle',
+          symbolSize: (v: number, p: { dataIndex: number }) => p.dataIndex === lastIdx ? 10 : 4,
+          showSymbol: true,
+          endLabel: { show: true, formatter: '{c}%', fontSize: 11, fontWeight: 'bold' as const, color: CHART_COLORS.danger },
+        },
+      ],
+    }
+  }, [zonaTendencia, tendenciaView])
+
+  const zonaOption = useMemo(() => {
+    if (!overviewData?.resultado_por_zona?.length) return {}
+    const d = overviewData.resultado_por_zona
+    return {
+      tooltip: { ...TOOLTIP_STYLE, trigger: 'axis' as const, axisPointer: { type: 'shadow' as const } },
+      legend: { ...LEGEND_STYLE, data: ['Bien', 'Mal', 'Otros'] },
+      grid: GRID_STYLE,
+      xAxis: { type: 'value' as const, ...AXIS_STYLE },
+      yAxis: { type: 'category' as const, data: d.map(i => i.zona), ...CATEGORY_AXIS },
+      series: [
+        { name: 'Bien', type: 'bar' as const, stack: 'total', data: d.map(i => ({ value: i.bien, itemStyle: { opacity: !selectedZona || selectedZona === i.zona ? 1 : 0.25 } })), itemStyle: { color: CHART_COLORS.success } },
+        { name: 'Mal', type: 'bar' as const, stack: 'total', data: d.map(i => ({ value: i.mal, itemStyle: { opacity: !selectedZona || selectedZona === i.zona ? 1 : 0.25 } })), itemStyle: { color: CHART_COLORS.danger } },
+        { name: 'Otros', type: 'bar' as const, stack: 'total', data: d.map(i => ({ value: i.pendiente, itemStyle: { opacity: !selectedZona || selectedZona === i.zona ? 1 : 0.25 } })), itemStyle: { color: CHART_COLORS.muted } },
+      ],
+    }
+  }, [overviewData, selectedZona])
+
+  // Tendencia chart click — only active in diario view
+  const tendenciaEvents = useMemo(() => {
+    if (tendenciaView !== 'diario') return undefined
+    return {
+      click: (p: { dataIndex?: number }) => {
+        if (p.dataIndex == null || !zonaTendencia[p.dataIndex]) return
+        setSelectedDay(zonaTendencia[p.dataIndex].periodo)
+      },
+    }
+  }, [tendenciaView, zonaTendencia])
+
+  // Points for the selected day modal
+  const selectedDayPoints = useMemo(() => {
+    if (!selectedDay) return []
+    const pts = selectedZona
+      ? mapaPoints.filter(p => p.zona === selectedZona)
+      : mapaPoints
+    return pts.filter(p => p.fecha?.startsWith(selectedDay))
+  }, [selectedDay, mapaPoints, selectedZona])
+
+  const zonaEvents = useMemo(() => ({
+    click: (p: { name?: string }) => {
+      if (p.name) setSelectedZona((prev) => prev === p.name ? '' : p.name!)
+    },
+  }), [])
+
+  const topComunasOption = useMemo(() => {
+    if (!zonaTopComunas.length) return {}
+    const d = [...zonaTopComunas].sort((a, b) => b.tasa_mal - a.tasa_mal).slice(0, 5)
+    return {
+      tooltip: { ...TOOLTIP_STYLE, trigger: 'axis' as const, formatter: (p: Array<{ name: string; value: number }>) => `${p[0].name}: ${p[0].value.toFixed(1)}%` },
+      grid: { left: 12, right: 24, bottom: 12, top: 12, containLabel: true },
+      xAxis: { type: 'value' as const, ...AXIS_STYLE, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: '{value}%' }, max: 100 },
+      yAxis: { type: 'category' as const, data: d.map(i => i.comuna), ...CATEGORY_AXIS },
+      series: [{
+        type: 'bar' as const, barMaxWidth: 20,
+        data: d.map(i => ({
+          value: i.tasa_mal,
+          itemStyle: { color: i.tasa_mal >= 50 ? CHART_COLORS.danger : i.tasa_mal >= 30 ? CHART_COLORS.warning : CHART_COLORS.primary, borderRadius: BAR_RADIUS_H },
+        })),
+        label: { show: true, position: 'right' as const, formatter: '{c}%', fontSize: 10, color: '#64748b' },
+      }],
+    }
+  }, [zonaTopComunas])
+
+  const comunaEvents = useMemo(() => ({
+    click: (p: { name?: string }) => { if (p.name) addDrillFilter('comuna', 'Comuna', p.name) },
+  }), [addDrillFilter])
+
+  const scatterOption = useMemo(() => {
+    if (!zonaContratistaData?.scatter_contratistas?.length) return {}
+    const d = zonaContratistaData.scatter_contratistas
+    const avgVolumen = d.reduce((s, i) => s + i.volumen, 0) / d.length
+    return {
+      tooltip: {
+        ...TOOLTIP_STYLE,
+        formatter: (p: { data?: { name?: string; value?: number[] }; name?: string; value?: number[] }) => {
+          const v = p.value ?? p.data?.value ?? []; const n = p.name ?? p.data?.name ?? ''
+          return `<strong>${n}</strong><br/>Volumen: ${v[0] ?? 0}<br/>Tasa mal: ${(v[1] ?? 0).toFixed(1)}%<br/>Multas: ${v[2] ?? 0}`
+        },
+      },
+      grid: { ...GRID_STYLE, left: 40 },
+      xAxis: {
+        name: 'Volumen', type: 'value' as const, ...AXIS_STYLE, nameTextStyle: { fontSize: 10, color: '#94a3b8' },
+        axisLabel: { ...AXIS_STYLE.axisLabel },
+      },
+      yAxis: { name: '% Tasa Mal', type: 'value' as const, ...AXIS_STYLE, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: '{value}%' }, nameTextStyle: { fontSize: 10, color: '#94a3b8' } },
+      series: [{
+        type: 'scatter' as const,
+        data: d.map((i, idx) => ({
+          name: i.contratista,
+          value: [i.volumen, i.tasa_mal, i.multas],
+          symbolSize: Math.max(8, Math.min(36, i.multas * 3 + 8)),
+          itemStyle: { color: CONTRATISTA_COLORS[idx % CONTRATISTA_COLORS.length], opacity: 0.8 },
+        })),
+        markLine: {
+          silent: true,
+          symbol: 'none',
+          lineStyle: { width: 1 },
+          label: { fontSize: 10, color: '#94a3b8' },
+          data: [
+            { yAxis: 30, lineStyle: { type: 'dashed' as const, color: CHART_COLORS.danger, opacity: 0.5 }, label: { formatter: '30% riesgo', position: 'insideEndTop' as const } },
+            { xAxis: avgVolumen, lineStyle: { type: 'dashed' as const, color: '#94a3b8' }, label: { formatter: 'Prom. vol.', position: 'insideEndTop' as const } },
+          ],
+        },
+      }],
+    }
+  }, [zonaContratistaData])
+
+  const scatterEvents = useMemo(() => ({
+    click: (p: { data?: { name?: string } }) => { if (p.data?.name) setSelectedContratista(p.data.name) },
+  }), [])
+
+  const topContratistaBarOption = useMemo(() => {
+    if (!zonaContratistaData?.ranking_contratistas?.length) return {}
+    const d = [...zonaContratistaData.ranking_contratistas].sort((a, b) => b.tasa_mal - a.tasa_mal).slice(0, 10)
+    return {
+      tooltip: { ...TOOLTIP_STYLE, trigger: 'axis' as const, formatter: (p: Array<{ name: string; value: number }>) => `${p[0].name}: ${p[0].value.toFixed(1)}%` },
+      grid: { left: 12, right: 32, bottom: 12, top: 12, containLabel: true },
+      xAxis: { type: 'value' as const, ...AXIS_STYLE, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: '{value}%' } },
+      yAxis: { type: 'category' as const, data: d.map(i => i.contratista), ...CATEGORY_AXIS, axisLabel: { fontSize: 10, color: '#64748b', width: 120, overflow: 'truncate' as const } },
+      series: [{
+        type: 'bar' as const, barMaxWidth: 20,
+        data: d.map(i => ({
+          value: i.tasa_mal,
+          itemStyle: { color: i.tasa_mal >= 40 ? CHART_COLORS.danger : i.tasa_mal >= 20 ? CHART_COLORS.warning : CHART_COLORS.secondary, borderRadius: BAR_RADIUS_H },
+        })),
+        label: { show: true, position: 'right' as const, formatter: '{c}%', fontSize: 10, color: '#64748b' },
+      }],
+    }
+  }, [zonaContratistaData])
+
+  const contratistaBarEvents = useMemo(() => ({
+    click: (p: { name?: string }) => { if (p.name) setSelectedContratista(p.name) },
+  }), [])
+
+  const causasPorContratistaOption = useMemo(() => {
+    const cpc = zonaMalEjecutadosData?.causas_por_contratista
+    if (!cpc?.length) return null
+    const sorted = [...cpc].sort((a, b) => b.total_mal - a.total_mal)
+    const top8 = sorted.slice(0, sorted.length)
+    // Collect all unique causa names across top 8
+    const allCausas = new Map<string, number>()
+    for (const c of top8) {
+      for (const ca of c.causas) allCausas.set(ca.causa, (allCausas.get(ca.causa) || 0) + ca.cantidad)
+    }
+    const topCausas = Array.from(allCausas.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c)
+    const causaColors: Record<string, string> = {
+      [topCausas[0] || '']: CHART_COLORS.danger,
+      [topCausas[1] || '']: CHART_COLORS.warning,
+      [topCausas[2] || '']: CHART_COLORS.primary,
+    }
+    const seriesNames = [...topCausas, 'Otras']
+    const contratistas = top8.map(c => c.contratista)
+    const series = seriesNames.map(name => ({
+      name: name.replace(/_/g, ' '),
+      type: 'bar' as const,
+      stack: 'total',
+      barMaxWidth: 18,
+      itemStyle: {
+        color: name === 'Otras' ? CHART_COLORS.muted : (causaColors[name] || CHART_COLORS.muted),
+        borderRadius: name === seriesNames[seriesNames.length - 1] ? BAR_RADIUS_H : ([0, 0, 0, 0] as [number, number, number, number]),
+      },
+      data: top8.map(c => {
+        if (name === 'Otras') {
+          const topTotal = c.causas.filter(ca => topCausas.includes(ca.causa)).reduce((s, ca) => s + ca.cantidad, 0)
+          return Math.max(0, c.total_mal - topTotal)
+        }
+        return c.causas.find(ca => ca.causa === name)?.cantidad || 0
+      }),
+    }))
+    return {
+      tooltip: { ...TOOLTIP_STYLE, trigger: 'axis' as const },
+      legend: { ...LEGEND_STYLE, data: seriesNames.map(n => n.replace(/_/g, ' ')) },
+      grid: { left: 8, right: 20, bottom: 28, top: 8, containLabel: true },
+      xAxis: { type: 'value' as const, ...AXIS_STYLE },
+      yAxis: { type: 'category' as const, data: contratistas, ...CATEGORY_AXIS, axisLabel: { fontSize: 10, color: '#64748b', width: 120, overflow: 'truncate' as const } },
+      series,
+    }
+  }, [zonaMalEjecutadosData])
+
+  const paretoOption = useMemo(() => {
+    if (!causasData?.pareto_causas?.length) return {}
+    const d = causasData.pareto_causas
+    return {
+      tooltip: { ...TOOLTIP_STYLE, trigger: 'axis' as const, axisPointer: { type: 'cross' as const } },
+      legend: { ...LEGEND_STYLE, data: ['Cantidad', '% Acumulado'] },
+      grid: GRID_STYLE,
+      xAxis: { type: 'category' as const, data: d.map(i => i.causa), ...CATEGORY_AXIS, axisLabel: { rotate: 30, fontSize: 10, color: '#64748b', interval: 0 } },
+      yAxis: [
+        { type: 'value' as const, ...AXIS_STYLE },
+        { type: 'value' as const, ...AXIS_STYLE, min: 0, max: 100, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: '{value}%' } },
+      ],
+      series: [
+        { name: 'Cantidad', type: 'bar' as const, data: d.map(i => i.cantidad), itemStyle: { color: CHART_COLORS.primary, borderRadius: BAR_RADIUS }, barMaxWidth: 32 },
+        {
+          name: '% Acumulado', type: 'line' as const, yAxisIndex: 1, data: d.map(i => i.acumulado_pct),
+          smooth: true, lineStyle: { color: CHART_COLORS.warning, width: 2 }, itemStyle: { color: CHART_COLORS.warning }, showSymbol: false,
+          markLine: { data: [{ yAxis: 80, lineStyle: { type: 'dashed' as const, color: '#cbd5e1' } }], label: { formatter: '80%', fontSize: 10, color: '#94a3b8' } },
+        },
+      ],
+    }
+  }, [causasData])
+
+  const trabajosMalOption = useMemo(() => {
+    if (!causasData?.trabajos_tipicamente_mal?.length) return {}
+    const d = [...causasData.trabajos_tipicamente_mal].sort((a, b) => b.tasa_mal - a.tasa_mal).slice(0, 10)
+    return {
+      tooltip: { ...TOOLTIP_STYLE, trigger: 'axis' as const },
+      legend: { ...LEGEND_STYLE, data: ['Total', 'Mal Ejecutado'] },
+      grid: { left: 12, right: 40, bottom: 40, top: 12, containLabel: true },
+      xAxis: { type: 'value' as const, ...AXIS_STYLE },
+      yAxis: { type: 'category' as const, data: d.map(i => i.tipo_trabajo), ...CATEGORY_AXIS, axisLabel: { fontSize: 10, color: '#64748b', width: 130, overflow: 'truncate' as const } },
+      series: [
+        { name: 'Total', type: 'bar' as const, data: d.map(i => i.total), itemStyle: { color: CHART_COLORS.primary } },
+        { name: 'Mal Ejecutado', type: 'bar' as const, data: d.map(i => i.mal_ejecutado), itemStyle: { color: CHART_COLORS.danger } },
+      ],
+    }
+  }, [causasData])
+
+  // ─── OCA: zona-filtered data ─────────────────────────────────────────────
+  const zonaOcaData = useMemo<OcaData | null>(() => {
+    if (!ocaData) return null
+    if (!selectedZona) return ocaData
+    return {
+      ranking_inspectores: ocaData.ranking_inspectores.filter(r => r.zonas.includes(selectedZona)),
+      efectividad_por_zona: ocaData.efectividad_por_zona.filter(z => z.zona === selectedZona),
+      tendencia_efectividad: ocaData.tendencia_efectividad,
+    }
+  }, [ocaData, selectedZona])
+
+  // OCA tendencia computed from mapaPoints for semanal/diario, backend for mensual
+  const zonaOcaTendencia = useMemo(() => {
+    if (ocaTendenciaView === 'mensual') return ocaData?.tendencia_efectividad ?? []
+    const pts = mapaPoints.filter(p => p.fecha && p.estado_efectividad)
+    if (!pts.length) return []
+    const byPeriod = new Map<string, { total: number; efectivas: number }>()
+    for (const p of pts) {
+      const key = getPeriodKey(p.fecha!, ocaTendenciaView)
+      const e = byPeriod.get(key) || { total: 0, efectivas: 0 }
+      e.total++
+      const ef = (p.estado_efectividad || '').toUpperCase()
+      if (ef.includes('EFECTIVA') && !ef.includes('NO EFECTIVA')) e.efectivas++
+      byPeriod.set(key, e)
+    }
+    return Array.from(byPeriod.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([periodo, s]) => ({
+        periodo,
+        total: s.total,
+        efectivas: s.efectivas,
+        tasa_efectividad: s.total > 0 ? Math.round((s.efectivas / s.total) * 10000) / 100 : 0,
+      }))
+  }, [ocaTendenciaView, mapaPoints, ocaData])
+
+  // ─── OCA chart options ─────────────────────────────────────────────────────
+  const tendenciaEfectividadOption = useMemo(() => {
+    if (!zonaOcaTendencia.length) return {}
+    const d = zonaOcaTendencia
+    return {
+      tooltip: { ...TOOLTIP_STYLE, trigger: 'axis' as const, axisPointer: { type: 'cross' as const } },
+      legend: { ...LEGEND_STYLE, data: ['Total Inspeccionadas', 'Efectivas', '% Efectividad'] },
+      grid: { ...GRID_STYLE, bottom: ocaTendenciaView === 'diario' && d.length > 30 ? 68 : GRID_STYLE.bottom },
+      xAxis: { type: 'category' as const, data: d.map(i => formatPeriodLabel(i.periodo, ocaTendenciaView)), ...CATEGORY_AXIS, axisLabel: { ...CATEGORY_AXIS.axisLabel, rotate: ocaTendenciaView === 'diario' ? 45 : 0 } },
+      yAxis: [
+        { type: 'value' as const, ...AXIS_STYLE },
+        { type: 'value' as const, ...AXIS_STYLE, min: 0, max: 100, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: '{value}%' } },
+      ],
+      dataZoom: ocaTendenciaView === 'diario' && d.length > 30 ? [
+        { type: 'inside', start: Math.max(0, 100 - (30 / d.length) * 100), end: 100 },
+        { type: 'slider', height: 18, bottom: 22, borderColor: '#e2e8f0', fillerColor: 'rgba(71,85,105,0.08)', handleSize: '60%', textStyle: { fontSize: 10, color: '#94a3b8' } },
+      ] : undefined,
+      series: [
+        {
+          name: 'Total Inspeccionadas', type: 'bar' as const, barMaxWidth: 28,
+          data: d.map(i => ({ value: i.total, itemStyle: { color: CHART_COLORS.muted, borderRadius: BAR_RADIUS } })),
+        },
+        {
+          name: 'Efectivas', type: 'bar' as const, barMaxWidth: 28,
+          data: d.map(i => ({ value: i.efectivas, itemStyle: { color: CHART_COLORS.success, borderRadius: BAR_RADIUS } })),
+        },
+        {
+          name: '% Efectividad', type: 'line' as const, yAxisIndex: 1,
+          data: d.map(i => i.tasa_efectividad),
+          smooth: true,
+          lineStyle: { color: CHART_COLORS.primary, width: 2.5 },
+          itemStyle: { color: CHART_COLORS.primary },
+          symbol: 'circle', symbolSize: 5, showSymbol: true,
+          markLine: {
+            silent: true, symbol: 'none',
+            data: [{ yAxis: 80, lineStyle: { type: 'dashed' as const, color: CHART_COLORS.success, opacity: 0.5 }, label: { formatter: '80% meta', fontSize: 10, color: '#94a3b8', position: 'insideEndTop' as const } }],
+          },
+        },
+      ],
+    }
+  }, [zonaOcaTendencia, ocaTendenciaView])
+
+  const efectividadZonaOption = useMemo(() => {
+    const data = zonaOcaData?.efectividad_por_zona
+    if (!data?.length) return {}
+    const d = [...data].sort((a, b) => a.tasa_efectividad - b.tasa_efectividad)
+    return {
+      tooltip: { ...TOOLTIP_STYLE, trigger: 'axis' as const, formatter: (p: Array<{ name: string; value: number }>) => `${p[0].name}: ${p[0].value.toFixed(1)}%` },
+      grid: { left: 12, right: 32, bottom: 12, top: 12, containLabel: true },
+      xAxis: { type: 'value' as const, ...AXIS_STYLE, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: '{value}%' }, max: 100 },
+      yAxis: { type: 'category' as const, data: d.map(i => i.zona), ...CATEGORY_AXIS },
+      series: [{
+        type: 'bar' as const, barMaxWidth: 20,
+        data: d.map(i => ({
+          value: i.tasa_efectividad,
+          itemStyle: { color: i.tasa_efectividad >= 80 ? CHART_COLORS.success : i.tasa_efectividad >= 50 ? CHART_COLORS.warning : CHART_COLORS.danger, borderRadius: BAR_RADIUS_H },
+        })),
+        label: { show: true, position: 'right' as const, formatter: '{c}%', fontSize: 10, color: '#64748b' },
+      }],
+    }
+  }, [zonaOcaData])
+
+  const inspectorScatterOption = useMemo(() => {
+    const ranking = zonaOcaData?.ranking_inspectores
+    if (!ranking?.length) return {}
+    const avgVol = ranking.reduce((s, r) => s + r.inspecciones, 0) / ranking.length
+    return {
+      tooltip: {
+        ...TOOLTIP_STYLE,
+        formatter: (p: { data?: { name?: string; value?: number[] } }) => {
+          const v = p.data?.value ?? []; const n = p.data?.name ?? ''
+          return `<strong>${n}</strong><br/>Inspecciones: ${v[0] ?? 0}<br/>Efectividad: ${(v[1] ?? 0).toFixed(1)}%`
+        },
+      },
+      grid: { ...GRID_STYLE, left: 40 },
+      xAxis: { name: 'Volumen', type: 'value' as const, ...AXIS_STYLE, nameTextStyle: { fontSize: 10, color: '#94a3b8' } },
+      yAxis: { name: '% Efectividad', type: 'value' as const, ...AXIS_STYLE, min: 0, max: 100, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: '{value}%' }, nameTextStyle: { fontSize: 10, color: '#94a3b8' } },
+      series: [{
+        type: 'scatter' as const,
+        data: ranking.map(r => ({
+          name: r.inspector,
+          value: [r.inspecciones, r.tasa_efectividad],
+          symbolSize: Math.max(8, Math.min(30, r.inspecciones / 10 + 6)),
+          itemStyle: { color: r.tasa_efectividad >= 80 ? CHART_COLORS.success : r.tasa_efectividad >= 50 ? CHART_COLORS.warning : CHART_COLORS.danger, opacity: 0.75 },
+        })),
+        markLine: {
+          silent: true, symbol: 'none',
+          lineStyle: { width: 1 },
+          label: { fontSize: 10, color: '#94a3b8' },
+          data: [
+            { yAxis: 80, lineStyle: { type: 'dashed' as const, color: CHART_COLORS.success, opacity: 0.5 }, label: { formatter: '80% meta', position: 'insideEndTop' as const } },
+            { xAxis: avgVol, lineStyle: { type: 'dashed' as const, color: '#94a3b8' }, label: { formatter: 'Prom. vol.', position: 'insideEndTop' as const } },
+          ],
+        },
+      }],
+    }
+  }, [zonaOcaData])
+
+  const topInspectoresBarOption = useMemo(() => {
+    const ranking = zonaOcaData?.ranking_inspectores
+    if (!ranking?.length) return {}
+    const d = [...ranking].sort((a, b) => b.inspecciones - a.inspecciones).slice(0, 10)
+    return {
+      tooltip: {
+        ...TOOLTIP_STYLE, trigger: 'axis' as const,
+        formatter: (p: Array<{ name: string; value: number; dataIndex: number }>) => {
+          const idx = p[0].dataIndex
+          return `${p[0].name}: ${p[0].value} insp. (${pct(d[idx].tasa_efectividad)} efect.)`
+        },
+      },
+      grid: { left: 12, right: 32, bottom: 12, top: 12, containLabel: true },
+      xAxis: { type: 'value' as const, ...AXIS_STYLE },
+      yAxis: { type: 'category' as const, data: d.map(i => i.inspector), ...CATEGORY_AXIS, axisLabel: { fontSize: 10, color: '#64748b', width: 120, overflow: 'truncate' as const } },
+      series: [{
+        type: 'bar' as const, barMaxWidth: 20,
+        data: d.map(i => ({
+          value: i.inspecciones,
+          itemStyle: { color: i.tasa_efectividad >= 80 ? CHART_COLORS.success : i.tasa_efectividad >= 50 ? CHART_COLORS.warning : CHART_COLORS.danger, borderRadius: BAR_RADIUS_H },
+        })),
+        label: { show: true, position: 'right' as const, formatter: (p: { dataIndex: number }) => `${pct(d[p.dataIndex].tasa_efectividad)}`, fontSize: 10, color: '#64748b' },
+      }],
+    }
+  }, [zonaOcaData])
+
+  // Filter mapa points by zona + inspection status + category
+  const filteredMapaPoints = useMemo(() => {
+    let pts = mapaPoints.filter(p => p.link_formulario && p.link_formulario !== '' && p.link_formulario !== 'None' && p.link_formulario !== 'nan')
+    if (selectedZona) pts = pts.filter(p => p.zona === selectedZona)
+    if (mapCategoryFilter.size < 4) pts = pts.filter(p => mapCategoryFilter.has(getPointCategory(p)))
+    return pts
+  }, [mapaPoints, selectedZona, mapCategoryFilter])
+
+  // KPIs: when a zona is selected, derive what we can from resultado_por_zona
+  const kpis = useMemo(() => {
+    if (!overviewData?.kpis) return undefined
+    if (!selectedZona) return overviewData.kpis
+    const zonaRow = overviewData.resultado_por_zona?.find(z => z.zona === selectedZona)
+    if (!zonaRow) return overviewData.kpis
+    const total = zonaRow.total
+    const mal = zonaRow.mal
+    const efectivas = zonaRow.efectivas
+    const totalInsp = zonaRow.total_inspecciones
+    return {
+      ...overviewData.kpis,
+      total_asignadas: total,
+      total_inspecciones: totalInsp,
+      total_efectivas: efectivas,
+      num_mal_ejecutado: mal,
+      pct_mal_ejecutado: efectivas > 0 ? (mal / efectivas) * 100 : 0,
+      pct_avance: total > 0 ? (totalInsp / total) * 100 : 0,
+    }
+  }, [overviewData, selectedZona])
+
+  // Sparkline data derived from tendencia_temporal (monthly pre-calculated)
+  const sparklines = useMemo(() => {
+    const t = overviewData?.tendencia_temporal
+    if (!t || t.length < 2) return { tasaMal: [], multas: [], total: [] }
+    return {
+      tasaMal: t.map(p => p.tasa_mal),
+      total: t.map(p => p.total),
+      multas: t.map(p => p.mal_ejecutado),
+    }
+  }, [overviewData])
+
+  // ─── Render ─────────────────────────────────────────────────────────────
+
+  if (isReportMode) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-2 border-oca-blue border-t-transparent mx-auto"></div>
-          <p className="mt-3 text-sm text-gray-500">Cargando datos...</p>
-        </div>
-      </div>
+      <PresentationMode
+        selectedBase={selectedBase}
+        kpis={kpis ?? null}
+        lastInspectionDate={lastInspectionDate}
+        tendenciaOption={tendenciaOption}
+        zonaOption={zonaOption}
+        scatterOption={scatterOption}
+        paretoOption={paretoOption}
+        causasPorContratistaOption={causasPorContratistaOption}
+        tendenciaEfectividadOption={tendenciaEfectividadOption}
+        efectividadZonaOption={efectividadZonaOption}
+        topInspectoresBarOption={topInspectoresBarOption}
+        mapaPoints={mapaPoints}
+        contratistaRanking={zonaContratistaData?.ranking_contratistas ?? []}
+        malEjecutadosData={malEjecutadosData ?? null}
+        tendenciaTemporal={overviewData?.tendencia_temporal ?? []}
+        ocaTendenciaEfectividad={ocaData?.tendencia_efectividad ?? []}
+        onExit={setNormal}
+      />
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <ExportOverlay
-        isVisible={exporting}
-        format={exportFormat}
-        recordCount={hasActiveFilters ? data?.total : stats?.total}
-        hasFilters={hasActiveFilters}
-      />
-      {refreshing && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-white rounded-full shadow-lg px-4 py-2 flex items-center gap-2 border">
-          <div className="animate-spin rounded-full h-4 w-4 border-2 border-oca-blue border-t-transparent"></div>
-          <span className="text-sm text-gray-600">Actualizando datos...</span>
-        </div>
-      )}
-      <Header
-        title="Informe NNCC"
-        subtitle="Control de Inspecciones de Cumplimiento"
-      />
+    <div className="flex flex-col min-h-screen bg-slate-50/80">
+      <Header title="Nuevas Conexiones (NNCC)" subtitle="Dashboard de inspecciones y resultados de ejecucion" />
 
-      <div className={`p-6 transition-opacity duration-200 ${refreshing ? 'opacity-60 pointer-events-none' : ''}`}>
-        {/* Global Filters Bar */}
-        <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-          <Flex justifyContent="between" alignItems="center" className="flex-wrap gap-4">
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-2">
-                <Filter size={16} className="text-gray-400" />
-                <span className="text-sm font-medium text-gray-600">Filtros:</span>
-              </div>
-              <div className="w-40">
-                <Select value={globalZona} onValueChange={setGlobalZona} placeholder="Zona">
-                  <SelectItem value="">Todas las zonas</SelectItem>
-                  {zonas.map(z => (
-                    <SelectItem key={z} value={z}>{z}</SelectItem>
-                  ))}
+      <main className="flex-1 px-4 py-3 space-y-3 max-w-[1600px] mx-auto w-full">
+        {/* ── Global filter bar ── */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Base</span>
+            <div className="w-52">
+              {basesLoading ? (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-slate-200 bg-white text-xs text-slate-400">
+                  <Loader2 size={13} className="animate-spin" /> Cargando...
+                </div>
+              ) : (
+                <Select value={selectedBase} onValueChange={setSelectedBase} placeholder="Todas las bases">
+                  <SelectItem value="">Todas las bases</SelectItem>
+                  {bases.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
                 </Select>
-              </div>
-              <div className="w-48">
-                <Select value={globalBase} onValueChange={setGlobalBase} placeholder="Periodo">
-                  <SelectItem value="">Todos los periodos</SelectItem>
-                  {bases.map(b => (
-                    <SelectItem key={b} value={b}>{b}</SelectItem>
-                  ))}
-                </Select>
-              </div>
-              <div className="flex items-center gap-3 ml-4 pl-4 border-l-2 border-gray-300 bg-white rounded-r-lg py-2 pr-4">
-                <span className="text-xs text-gray-600 font-medium whitespace-nowrap">Periodo:</span>
-                <Select value={globalAnio} onValueChange={setGlobalAnio} placeholder="Año" className="w-32">
-                  <SelectItem value="">Año</SelectItem>
-                  {periodos.anios.map(a => (
-                    <SelectItem key={a} value={String(a)}>{a}</SelectItem>
-                  ))}
-                </Select>
-                <Select value={globalMes} onValueChange={setGlobalMes} placeholder="Mes" className="w-40">
-                  <SelectItem value="">Mes</SelectItem>
-                  {MESES.filter(m => periodos.meses.includes(m.value)).map(m => (
-                    <SelectItem key={m.value} value={String(m.value)}>{m.label}</SelectItem>
-                  ))}
-                </Select>
-              </div>
-              {(globalZona || globalBase || globalMes || globalAnio) && (
-                <button
-                  onClick={clearGlobalFilters}
-                  className="text-sm text-oca-blue hover:text-oca-blue-dark"
-                >
-                  Limpiar filtros
-                </button>
               )}
             </div>
-            <div className="text-sm text-gray-500">
-              {stats && (
-                <span>
-                  Mostrando <strong>{formatNumber(stats.total)}</strong> registros
-                </span>
-              )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Zona</span>
+            <div className="w-44">
+              <Select value={selectedZona} onValueChange={setSelectedZona} placeholder="Todas las zonas">
+                <SelectItem value="">Todas las zonas</SelectItem>
+                {zonas.map((z) => <SelectItem key={z} value={z}>{z}</SelectItem>)}
+              </Select>
             </div>
-          </Flex>
+          </div>
+          <div className="flex-1" />
+          <button
+            onClick={() => { api.clearCache(); loadDashboard(selectedBase); loadMapaData(selectedBase); if (activeTab === 4) loadDetail() }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-white border border-transparent hover:border-slate-200 transition-all"
+          >
+            <RefreshCw size={13} /> Actualizar
+          </button>
         </div>
 
-        {/* KPIs - Resumen minimalista */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Total</p>
-            <p className="text-2xl font-semibold text-gray-900 mt-1">{formatNumber(stats?.total || 0)}</p>
-          </div>
-
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Efectivas</p>
-            <p className="text-2xl font-semibold text-emerald-600 mt-1">{formatNumber(stats?.efectivas || 0)}</p>
-            <p className="text-xs text-gray-400 mt-1">{calcPercentage(stats?.efectivas || 0, stats?.total || 0)}%</p>
-          </div>
-
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">No Efectivas</p>
-            <p className="text-2xl font-semibold text-red-600 mt-1">{formatNumber(stats?.no_efectivas || 0)}</p>
-            <p className="text-xs text-gray-400 mt-1">{calcPercentage(stats?.no_efectivas || 0, stats?.total || 0)}%</p>
-          </div>
-
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Efectividad</p>
-            <p className={`text-2xl font-semibold mt-1 ${stats && stats.tasa_efectividad >= META_EFECTIVIDAD ? 'text-emerald-600' : 'text-amber-600'}`}>
-              {stats?.tasa_efectividad || 0}%
-            </p>
-            <p className="text-xs text-gray-400 mt-1">Meta: {META_EFECTIVIDAD}%</p>
-          </div>
-
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Con Multa</p>
-            <p className="text-2xl font-semibold text-red-600 mt-1">{formatNumber(stats?.con_multa || 0)}</p>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <TabGroup>
-          <TabList className="mb-4">
-            <Tab icon={Users}>Resumen Ejecutivo</Tab>
-            <Tab icon={BarChart3}>Análisis Territorial</Tab>
-            <Tab icon={TrendingUp}>Tendencias</Tab>
-            <Tab icon={Building}>Datos</Tab>
+        {/* ── Tabs ── */}
+        <TabGroup index={activeTab} onIndexChange={setActiveTab}>
+          <TabList className="mb-0 border-b border-slate-200">
+            <Tab>Resumen Ejecutivo</Tab>
+            <Tab>Contratistas</Tab>
+            <Tab>Mal Ejecutados</Tab>
+            <Tab>OCA</Tab>
+            <Tab>Detalle</Tab>
           </TabList>
+
           <TabPanels>
-            {/* Resumen Ejecutivo Panel */}
+            {/* ═══ TAB A — Resumen Ejecutivo ═══ */}
             <TabPanel>
-              {/* Primera fila: Efectividad OCA y Calidad del Trabajo */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-                {/* Efectividad OCA con comparativa */}
-                <Card>
-                  <Title>Efectividad OCA</Title>
-                  <Text className="text-gray-500">Inspecciones realizadas vs no realizadas</Text>
-                  <div className="mt-4">
-                    <DonutChart
-                      className="h-32"
-                      data={efectividadOCAData}
-                      category="value"
-                      index="name"
-                      colors={getColorsForData(efectividadOCAData) as any}
-                      valueFormatter={(v) => formatNumber(v)}
-                      showAnimation
+              {activeTab !== 0 ? null : dashboardLoading ? (
+                <div className="flex items-center justify-center h-48"><Loader2 size={24} className="animate-spin text-slate-400" /></div>
+              ) : dashboardError ? (
+                <div className="bg-white rounded-lg border border-slate-200 p-8 text-center mt-3">
+                  <AlertTriangle size={24} className="mx-auto text-red-500 mb-2" />
+                  <p className="text-sm text-slate-600 font-medium">{dashboardError}</p>
+                  <Button variant="secondary" size="sm" onClick={() => loadDashboard(selectedBase)} className="mt-3">Reintentar</Button>
+                </div>
+              ) : (
+                <div className="space-y-3 mt-3">
+                  {/* ── Fila 1: Hero KPIs — strategic risk indicators ── */}
+                  <div className="bg-white rounded-lg border border-slate-200/60 shadow-sm overflow-hidden grid grid-cols-3 divide-x divide-slate-100">
+                    <HeroKpi
+                      label="Mal Ejecutado"
+                      value={kpis ? pct(kpis.pct_mal_ejecutado) : '–'}
+                      subtitle={`${formatNumber(kpis?.num_mal_ejecutado)} de ${formatNumber(kpis?.total_efectivas)} efectivas`}
+                      delta={deltas?.tasa_mal}
+                      meta="meta <15%"
+                      status={(kpis?.pct_mal_ejecutado ?? 0) <= 15 ? 'good' : (kpis?.pct_mal_ejecutado ?? 0) <= 25 ? 'neutral' : 'bad'}
+                      sparkData={sparklines.tasaMal}
+                      onClick={() => setActiveModal('mal_ejecutado')}
+                    />
+                    <HeroKpi
+                      label="Multas"
+                      value={kpis?.num_multas_si ?? 0}
+                      subtitle={kpis && kpis.total_efectivas ? `Tasa: ${pct((kpis.num_multas_si / kpis.total_efectivas) * 100)}` : undefined}
+                      meta="meta 0"
+                      status={(kpis?.num_multas_si ?? 0) > 0 ? 'bad' : 'good'}
+                      sparkData={sparklines.multas}
+                      onClick={() => setActiveModal('multas')}
+                    />
+                    <HeroKpi
+                      label="Efectividad OCA"
+                      value={kpis ? pct(kpis.tasa_efectividad_oca) : '–'}
+                      meta="meta >85%"
+                      status={(kpis?.tasa_efectividad_oca ?? 0) >= 85 ? 'good' : (kpis?.tasa_efectividad_oca ?? 0) >= 70 ? 'neutral' : 'bad'}
+                      sparkData={sparklines.total}
                     />
                   </div>
-                  <div className="mt-3 space-y-1.5">
-                    <Flex justifyContent="between">
-                      <span className="text-sm flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                        Efectiva
-                      </span>
-                      <span className="text-sm font-semibold text-emerald-600">
-                        {formatNumber(stats?.efectivas || 0)}
-                      </span>
-                    </Flex>
-                    <Flex justifyContent="between">
-                      <span className="text-sm flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                        No Efectiva
-                      </span>
-                      <span className="text-sm font-semibold text-rose-600">
-                        {formatNumber(stats?.no_efectivas || 0)}
-                      </span>
-                    </Flex>
+
+                  {/* ── Fila 2: Operational + Hallazgos ── */}
+                  <div className="bg-white rounded-lg border border-slate-200/60 shadow-sm overflow-hidden grid grid-cols-2 md:grid-cols-4 divide-x divide-slate-100">
+                    <FeatureKpi label="Asignadas" value={kpis?.total_asignadas ?? 0} subtitle={`Base: ${selectedBase || 'Todas'}`} onClick={() => setActiveModal('total')} />
+                    <KpiCard label="Inspeccionadas" value={kpis?.total_inspecciones ?? 0} unit={kpis ? pct(kpis.pct_avance) : ''} sparkData={sparklines.total} />
+                    {/* Avance + Ejecucion stats */}
+                    <div className="px-4 py-3">
+                      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Avance</p>
+                      {(() => {
+                        const avanceVal = kpis?.pct_avance ?? 0
+                        const level = avanceVal >= 80 ? 'good' : avanceVal >= 50 ? 'warning' : 'bad'
+                        const barColor = level === 'good' ? 'bg-green-700' : level === 'warning' ? 'bg-amber-600' : 'bg-red-700'
+                        const valueColor = level === 'good' ? 'text-green-700' : level === 'warning' ? 'text-amber-700' : 'text-red-700'
+                        const ej = ejecucionStats
+                        return (
+                          <>
+                            <p className={`text-lg font-semibold ${valueColor} mt-1 leading-none tracking-tight`}>
+                              {kpis ? pct(avanceVal) : '–'}
+                            </p>
+                            <div className="mt-2 w-full bg-slate-100 rounded-full h-[3px] overflow-hidden">
+                              <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(100, avanceVal)}%` }} />
+                            </div>
+                            {ej && ej.fecha_envio && (
+                              <div className="mt-2 space-y-0.5">
+                                <p className="text-[10px] text-slate-500">
+                                  {ej.completado
+                                    ? `Completado en ${ej.dias_habiles} dias habiles`
+                                    : `${ej.dias_habiles} dias habiles`
+                                  }
+                                  {' · '}{ej.promedio_diario_habil} insp/dia
+                                </p>
+                                {!ej.completado && ej.fecha_proyectada && (
+                                  <p className="text-[10px] font-medium text-slate-600">
+                                    Proyeccion: {new Date(ej.fecha_proyectada + 'T00:00:00').toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                          </>
+                        )
+                      })()}
+                    </div>
+                    <KpiCard
+                      label="Medidores Cruzados"
+                      value={kpis?.num_medidores_cruzados ?? 0}
+                      subtitle="Hallazgo en inspección"
+                      status={(kpis?.num_medidores_cruzados ?? 0) > 0 ? 'bad' : 'good'}
+                      onClick={() => setShowMedidoresCruzados(true)}
+                    />
                   </div>
-                  <div className="mt-4 pt-4 border-t">
-                    <Flex justifyContent="between" alignItems="center">
-                      <div>
-                        <p className="text-2xl font-bold text-oca-blue">{stats?.tasa_efectividad || 0}%</p>
-                        <p className="text-xs text-gray-500">Tasa de Efectividad</p>
-                      </div>
-                      {stats && stats.comparativas.efectividad.diferencia !== 0 && (
-                        <div className={`flex items-center gap-1 px-2 py-1 rounded ${
-                          stats.comparativas.efectividad.diferencia > 0 ? 'bg-emerald-100' : 'bg-rose-100'
-                        }`}>
-                          {stats.comparativas.efectividad.diferencia > 0 ? (
-                            <TrendingUp size={16} className="text-emerald-600" />
-                          ) : (
-                            <TrendingDown size={16} className="text-rose-600" />
-                          )}
-                          <span className={`text-sm font-semibold ${
-                            stats.comparativas.efectividad.diferencia > 0 ? 'text-emerald-600' : 'text-rose-600'
-                          }`}>
-                            {stats.comparativas.efectividad.diferencia > 0 ? '+' : ''}{stats.comparativas.efectividad.diferencia}%
-                          </span>
+
+                  {/* ── Fila 3: Tendencia + Resultado por Zona ── */}
+                  <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+                    <div className="bg-white rounded-lg border border-slate-200/60 shadow-sm px-4 py-3 lg:col-span-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <h3 className="text-xs font-semibold text-slate-700 tracking-tight">Tendencia Temporal</h3>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            {selectedZona ? `${selectedZona} · ` : ''}{lastInspectionDate ? `Actualizado al ${lastInspectionDate}` : ''}{tendenciaView === 'diario' ? ' · Clic en barra para ver detalle' : ''}
+                          </p>
                         </div>
-                      )}
-                    </Flex>
-                  </div>
-                </Card>
-
-                {/* Trabajo Ejecutado con comparativa */}
-                <Card className="lg:col-span-2">
-                  <Flex justifyContent="between" alignItems="start">
-                    <div>
-                      <Title>Calidad del Trabajo Ejecutado</Title>
-                      <Text className="text-gray-500">
-                        Sobre {formatNumber(totalEfectivas)} inspecciones efectivas
-                      </Text>
-                    </div>
-                    {stats && stats.comparativas.bien_ejecutado.diferencia !== 0 && (
-                      <div className={`flex items-center gap-1 px-2 py-1 rounded ${
-                        stats.comparativas.bien_ejecutado.diferencia > 0 ? 'bg-emerald-100' : 'bg-rose-100'
-                      }`}>
-                        {stats.comparativas.bien_ejecutado.diferencia > 0 ? (
-                          <TrendingUp size={16} className="text-emerald-600" />
-                        ) : (
-                          <TrendingDown size={16} className="text-rose-600" />
-                        )}
-                        <span className={`text-sm font-semibold ${
-                          stats.comparativas.bien_ejecutado.diferencia > 0 ? 'text-emerald-600' : 'text-rose-600'
-                        }`}>
-                          {stats.comparativas.bien_ejecutado.diferencia > 0 ? '+' : ''}{stats.comparativas.bien_ejecutado.diferencia}%
-                        </span>
-                      </div>
-                    )}
-                  </Flex>
-                  <div className="mt-5 grid grid-cols-2 gap-6">
-                    <div className="text-center p-4 bg-emerald-50 rounded-lg">
-                      <CheckCircle size={28} className="text-emerald-500 mx-auto mb-2" />
-                      <p className="text-3xl font-bold text-emerald-600">{formatNumber(stats?.bien_ejecutados || 0)}</p>
-                      <p className="text-sm text-gray-600 mt-1">Bien Ejecutados</p>
-                      <p className="text-lg font-semibold text-emerald-600 mt-1">
-                        {totalEfectivas > 0 ? ((stats?.bien_ejecutados || 0) / totalEfectivas * 100).toFixed(1) : 0}%
-                      </p>
-                    </div>
-                    <div className="text-center p-4 bg-amber-50 rounded-lg">
-                      <XCircle size={28} className="text-amber-500 mx-auto mb-2" />
-                      <p className="text-3xl font-bold text-amber-600">{formatNumber(stats?.mal_ejecutados || 0)}</p>
-                      <p className="text-sm text-gray-600 mt-1">Mal Ejecutados</p>
-                      <p className="text-lg font-semibold text-amber-600 mt-1">
-                        {totalEfectivas > 0 ? ((stats?.mal_ejecutados || 0) / totalEfectivas * 100).toFixed(1) : 0}%
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-5">
-                    <Flex justifyContent="between" className="mb-2">
-                      <span className="text-sm text-gray-600">Tasa de Trabajo Bien Ejecutado</span>
-                      <span className="text-sm font-semibold">
-                        {totalEfectivas > 0 ? ((stats?.bien_ejecutados || 0) / totalEfectivas * 100).toFixed(1) : 0}%
-                      </span>
-                    </Flex>
-                    <ProgressBar
-                      value={totalEfectivas > 0 ? (stats?.bien_ejecutados || 0) / totalEfectivas * 100 : 0}
-                      color="emerald"
-                    />
-                  </div>
-                </Card>
-              </div>
-
-              {/* Segunda fila: Cliente Conforme y Norma CC */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                {/* Cliente Conforme con comparativa */}
-                <Card>
-                  <Flex justifyContent="between" alignItems="start">
-                    <div>
-                      <Title>Satisfaccion del Cliente</Title>
-                      <Text className="text-gray-500">
-                        Sobre {formatNumber(totalClienteConRespuesta)} inspecciones con respuesta
-                      </Text>
-                    </div>
-                    {stats && stats.comparativas.conformidad.diferencia !== 0 && (
-                      <div className={`flex items-center gap-1 px-2 py-1 rounded ${
-                        stats.comparativas.conformidad.diferencia > 0 ? 'bg-emerald-100' : 'bg-rose-100'
-                      }`}>
-                        {stats.comparativas.conformidad.diferencia > 0 ? (
-                          <TrendingUp size={14} className="text-emerald-600" />
-                        ) : (
-                          <TrendingDown size={14} className="text-rose-600" />
-                        )}
-                        <span className={`text-xs font-semibold ${
-                          stats.comparativas.conformidad.diferencia > 0 ? 'text-emerald-600' : 'text-rose-600'
-                        }`}>
-                          {stats.comparativas.conformidad.diferencia > 0 ? '+' : ''}{stats.comparativas.conformidad.diferencia}%
-                        </span>
-                      </div>
-                    )}
-                  </Flex>
-                  <div className="mt-4 flex items-center gap-6">
-                    <DonutChart
-                      className="h-36"
-                      data={clienteConformeData}
-                      category="value"
-                      index="name"
-                      colors={getColorsForData(clienteConformeData) as any}
-                      valueFormatter={(v) => formatNumber(v)}
-                      showAnimation
-                    />
-                    <div className="space-y-2">
-                      {clienteConformeData.map(item => (
-                        <div key={item.name} className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${
-                            item.name === 'Conforme' ? 'bg-emerald-500' :
-                            item.name === 'Disconforme' ? 'bg-rose-500' :
-                            item.name === 'Sin Dato' ? 'bg-slate-400' : 'bg-zinc-300'
-                          }`}></span>
-                          <span className="text-sm">{item.name}: <strong>{formatNumber(item.value)}</strong></span>
+                        <div className="flex gap-0.5 bg-slate-100 rounded p-0.5">
+                          {(['mensual', 'semanal', 'diario'] as const).map(v => (
+                            <button
+                              key={v}
+                              onClick={() => setTendenciaView(v)}
+                              className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
+                                tendenciaView === v
+                                  ? 'bg-white text-slate-700 shadow-sm'
+                                  : 'text-slate-400 hover:text-slate-600'
+                              }`}
+                            >
+                              {v === 'mensual' ? 'Mes' : v === 'semanal' ? 'Sem' : 'Dia'}
+                            </button>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                  {totalClienteConRespuesta > 0 && (
-                    <div className="mt-4 pt-4 border-t">
-                      <Flex justifyContent="between" className="mb-2">
-                        <span className="text-sm text-gray-600">Tasa de Conformidad</span>
-                        <span className="text-sm font-semibold text-emerald-600">
-                          {((stats?.cliente_conforme.conforme || 0) / totalClienteConRespuesta * 100).toFixed(1)}%
-                        </span>
-                      </Flex>
-                      <ProgressBar
-                        value={(stats?.cliente_conforme.conforme || 0) / totalClienteConRespuesta * 100}
-                        color="emerald"
-                      />
-                    </div>
-                  )}
-                </Card>
-
-                {/* Cumple Norma Codigo Colores con comparativa */}
-                <Card>
-                  <Flex justifyContent="between" alignItems="start">
-                    <div>
-                      <Title>Cumplimiento Norma Codigo Colores</Title>
-                      <Text className="text-gray-500">
-                        Sobre {formatNumber(totalNormaCCConRespuesta)} inspecciones con respuesta
-                      </Text>
-                    </div>
-                    {stats && stats.comparativas.cumple_norma_cc.diferencia !== 0 && (
-                      <div className={`flex items-center gap-1 px-2 py-1 rounded ${
-                        stats.comparativas.cumple_norma_cc.diferencia > 0 ? 'bg-emerald-100' : 'bg-rose-100'
-                      }`}>
-                        {stats.comparativas.cumple_norma_cc.diferencia > 0 ? (
-                          <TrendingUp size={14} className="text-emerald-600" />
-                        ) : (
-                          <TrendingDown size={14} className="text-rose-600" />
-                        )}
-                        <span className={`text-xs font-semibold ${
-                          stats.comparativas.cumple_norma_cc.diferencia > 0 ? 'text-emerald-600' : 'text-rose-600'
-                        }`}>
-                          {stats.comparativas.cumple_norma_cc.diferencia > 0 ? '+' : ''}{stats.comparativas.cumple_norma_cc.diferencia}%
-                        </span>
                       </div>
+                      {zonaTendencia.length ? <EChart option={tendenciaOption} height="260px" onEvents={tendenciaEvents} className={tendenciaView === 'diario' ? 'cursor-pointer' : ''} /> : <EmptyState text="Sin datos de tendencia" />}
+                    </div>
+                    <ChartCard title="Resultado por Zona" sub={selectedZona ? `${selectedZona} — clic para quitar` : 'Clic en zona para filtrar'} className="lg:col-span-2">
+                      {overviewData?.resultado_por_zona?.length ? <EChart option={zonaOption} height="260px" onEvents={zonaEvents} /> : <EmptyState text="Sin datos por zona" />}
+                    </ChartCard>
+                  </div>
+
+                  {/* ── Fila 4: Comunas + Mapa ── */}
+                  <div className={mapExpanded ? '' : 'grid grid-cols-1 lg:grid-cols-3 gap-3'}>
+                    {!mapExpanded && (
+                      <ChartCard title="Top Comunas Problematicas" sub={selectedZona ? `${selectedZona} — clic en comuna para filtrar` : 'Clic en comuna para filtrar'}>
+                        {zonaTopComunas.length ? <EChart option={topComunasOption} height="260px" onEvents={comunaEvents} /> : <EmptyState text="Sin datos" />}
+                      </ChartCard>
                     )}
-                  </Flex>
-                  <div className="mt-4 flex items-center gap-6">
-                    <DonutChart
-                      className="h-36"
-                      data={cumpleNormaCCData}
-                      category="value"
-                      index="name"
-                      colors={getColorsForData(cumpleNormaCCData) as any}
-                      valueFormatter={(v) => formatNumber(v)}
-                      showAnimation
-                    />
-                    <div className="space-y-2">
-                      {cumpleNormaCCData.map(item => (
-                        <div key={item.name} className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${
-                            item.name === 'Cumple' ? 'bg-emerald-500' :
-                            item.name === 'No Cumple' ? 'bg-rose-500' :
-                            item.name === 'Sin Dato' ? 'bg-slate-400' : 'bg-zinc-300'
-                          }`}></span>
-                          <span className="text-sm">{item.name}: <strong>{formatNumber(item.value)}</strong></span>
+                    <div className={mapExpanded ? 'fixed inset-0 z-[900] bg-white p-4 flex flex-col' : 'lg:col-span-2'}>
+                      <ChartCard className={mapExpanded ? 'flex-1 flex flex-col' : ''}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-3">
+                            <h3 className="text-xs font-semibold text-slate-700">Mapa de Inspecciones</h3>
+                            <p className="text-[10px] text-slate-400">
+                              {filteredMapaPoints.length > 0 ? `${formatNumber(filteredMapaPoints.length)} puntos${selectedZona ? ` — ${selectedZona}` : ''}` : ''}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {([
+                              ['bien', CATEGORY_COLORS.bien, 'Bien'],
+                              ['mal', CATEGORY_COLORS.mal, 'Mal'],
+                              ['no_efectiva', CATEGORY_COLORS.no_efectiva, 'No Efect.'],
+                            ] as [MarkerCategory, string, string][]).map(([cat, color, label]) => {
+                              const active = mapCategoryFilter.has(cat)
+                              return (
+                                <button
+                                  key={cat}
+                                  onClick={() => {
+                                    const next = new Set(mapCategoryFilter)
+                                    if (active) next.delete(cat); else next.add(cat)
+                                    if (next.size === 0) next.add(cat)
+                                    setMapCategoryFilter(next)
+                                  }}
+                                  className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-all ${active ? 'opacity-100' : 'opacity-30'}`}
+                                >
+                                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+                                  <span className={active ? 'text-slate-600 font-medium' : 'text-slate-400'}>{label}</span>
+                                </button>
+                              )
+                            })}
+                            <span className="w-px h-4 bg-slate-200 mx-1" />
+                            <button
+                              onClick={() => setMapExpanded(!mapExpanded)}
+                              className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                              title={mapExpanded ? 'Minimizar mapa' : 'Expandir mapa'}
+                            >
+                              {mapExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                            </button>
+                          </div>
                         </div>
-                      ))}
+                        {mapaLoading ? (
+                          <div className={`flex items-center justify-center bg-slate-50 rounded-lg ${mapExpanded ? 'flex-1' : 'h-[300px]'}`}><Loader2 size={18} className="animate-spin text-slate-400" /></div>
+                        ) : filteredMapaPoints.length > 0 ? (
+                          <div className={mapExpanded ? 'flex-1 min-h-0' : ''} style={mapExpanded ? { height: '100%' } : undefined}>
+                            <LeafletMap points={filteredMapaPoints} height={mapExpanded ? 'calc(100vh - 140px)' : '300px'} onPointClick={(p) => setSelectedMapPoint(p)} />
+                          </div>
+                        ) : (
+                          <div className={`flex items-center justify-center bg-slate-50 rounded-lg text-[11px] text-slate-400 ${mapExpanded ? 'flex-1' : 'h-[200px]'}`}>Sin coordenadas disponibles</div>
+                        )}
+                      </ChartCard>
                     </div>
                   </div>
-                  {totalNormaCCConRespuesta > 0 && (
-                    <div className="mt-4 pt-4 border-t">
-                      <Flex justifyContent="between" className="mb-2">
-                        <span className="text-sm text-gray-600">Tasa de Cumplimiento</span>
-                        <span className="text-sm font-semibold text-emerald-600">
-                          {((stats?.cumple_norma_cc.cumple || 0) / totalNormaCCConRespuesta * 100).toFixed(1)}%
-                        </span>
-                      </Flex>
-                      <ProgressBar
-                        value={(stats?.cumple_norma_cc.cumple || 0) / totalNormaCCConRespuesta * 100}
-                        color="emerald"
-                      />
-                    </div>
-                  )}
-                </Card>
-              </div>
-
-              {/* Tercera fila: Estado Empalme */}
-              <div className="grid grid-cols-1 gap-6 mb-6">
-                {/* Estado Empalme */}
-                <Card>
-                  <Title>Estado del Empalme</Title>
-                  <Text className="text-gray-500">Condición del empalme al momento de inspección</Text>
-                  <BarChart
-                    className="mt-4 h-48"
-                    data={estadoEmpalmeData}
-                    index="name"
-                    categories={['value']}
-                    colors={['blue']}
-                    valueFormatter={(v) => formatNumber(v)}
-                    yAxisWidth={48}
-                    showAnimation
-                  />
-                </Card>
-              </div>
-
-              {/* Cuarta fila: Evolución Temporal */}
-              {evolucionData.length > 0 && (
-                <div className="grid grid-cols-1 gap-6">
-                  <Card>
-                    <Title>Evolución de Indicadores de Calidad</Title>
-                    <Text className="text-gray-500">Tendencia mensual de los principales indicadores (%)</Text>
-                    <LineChart
-                      className="mt-6 h-80"
-                      data={evolucionData}
-                      index="mes"
-                      categories={['Efectividad', 'Bien Ejecutado', 'Conformidad', 'Cumple Norma CC', 'Meta']}
-                      colors={['blue', 'emerald', 'amber', 'violet', 'gray']}
-                      valueFormatter={(v) => `${v}%`}
-                      yAxisWidth={45}
-                      showAnimation
-                      curveType="monotone"
-                    />
-                    <div className="mt-4 flex flex-wrap gap-4 justify-center">
-                      <div className="flex items-center gap-2">
-                        <span className="w-3 h-3 rounded-full bg-blue-500"></span>
-                        <span className="text-sm text-gray-600">Efectividad OCA</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
-                        <span className="text-sm text-gray-600">Bien Ejecutado</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="w-3 h-3 rounded-full bg-amber-500"></span>
-                        <span className="text-sm text-gray-600">Conformidad Cliente</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="w-3 h-3 rounded-full bg-violet-500"></span>
-                        <span className="text-sm text-gray-600">Cumple Norma CC</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="w-3 h-0.5 bg-gray-400"></span>
-                        <span className="text-sm text-gray-600">Meta ({META_EFECTIVIDAD}%)</span>
-                      </div>
-                    </div>
-                  </Card>
                 </div>
               )}
             </TabPanel>
 
-            {/* Análisis Territorial Panel */}
+            {/* ═══ TAB B — Contratistas ═══ */}
             <TabPanel>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-                {/* Distribución por zona */}
-                <Card>
-                  <Title>Distribución por Zona</Title>
-                  <DonutChart
-                    className="mt-4 h-48"
-                    data={zonaChartData}
-                    category="value"
-                    index="name"
-                    colors={['slate', 'blue', 'cyan', 'indigo']}
-                    valueFormatter={(v) => formatNumber(v)}
-                    showAnimation
-                  />
-                  <div className="mt-4 space-y-2">
-                    {zonaChartData.map((z) => (
-                      <Flex key={z.name} justifyContent="between">
-                        <Text className="text-sm">{z.name}</Text>
-                        <Text className="text-sm font-medium">{formatNumber(z.value)}</Text>
-                      </Flex>
-                    ))}
+              {activeTab !== 1 ? null : dashboardLoading ? (
+                <div className="flex items-center justify-center h-48"><Loader2 size={24} className="animate-spin text-slate-400" /></div>
+              ) : dashboardError ? (
+                <div className="bg-white rounded-lg border border-slate-200 p-8 text-center mt-3">
+                  <AlertTriangle size={24} className="mx-auto text-red-500 mb-2" />
+                  <p className="text-sm text-slate-600">{dashboardError}</p>
+                  <Button variant="secondary" size="sm" onClick={() => loadDashboard(selectedBase)} className="mt-3">Reintentar</Button>
+                </div>
+              ) : (
+                <div className="space-y-3 mt-3">
+                  {/* ── Fila 1: Hero KPIs — Panorama estrategico ── */}
+                  {zonaContratistaData?.ranking_contratistas?.length ? (() => {
+                    const ranking = zonaContratistaData.ranking_contratistas
+                    const peorTasa = Math.max(...ranking.map(r => r.tasa_mal))
+                    const peorNombre = ranking.find(r => r.tasa_mal === peorTasa)?.contratista ?? ''
+                    const totalMultas = ranking.reduce((s, r) => s + r.multas, 0)
+                    const totalInsp = ranking.reduce((s, r) => s + r.inspecciones, 0)
+                    const zonaCount = selectedZona ? 1 : zonas.length
+                    return (
+                      <div className="bg-white rounded-lg border border-slate-200/60 shadow-sm grid grid-cols-3 divide-x divide-slate-100">
+                        <HeroKpi
+                          label="Contratistas"
+                          value={ranking.length}
+                          subtitle={selectedZona ? `en ${selectedZona}` : `en ${zonaCount} zonas`}
+                          status="neutral"
+                        />
+                        <HeroKpi
+                          label="Peor Tasa Mal"
+                          value={pct(peorTasa)}
+                          subtitle={peorNombre}
+                          status={peorTasa >= 30 ? 'bad' : 'neutral'}
+                        />
+                        <HeroKpi
+                          label="Multas Totales"
+                          value={totalMultas}
+                          subtitle={totalInsp > 0 ? `Tasa: ${pct((totalMultas / totalInsp) * 100)}` : undefined}
+                          status={totalMultas > 0 ? 'bad' : 'good'}
+                        />
+                      </div>
+                    )
+                  })() : null}
+
+                  {/* ── Fila 2: Operational KPIs ── */}
+                  {zonaContratistaData?.ranking_contratistas?.length ? (() => {
+                    const ranking = zonaContratistaData.ranking_contratistas
+                    const totalInsp = ranking.reduce((s, r) => s + r.inspecciones, 0)
+                    const totalMal = ranking.reduce((s, r) => s + r.mal_ejecutado, 0)
+                    const totalPendNorm = ranking.reduce((s, r) => s + r.pend_norm, 0)
+                    const weightedCierre = totalInsp > 0
+                      ? ranking.reduce((s, r) => s + r.tasa_cierre * r.inspecciones, 0) / totalInsp
+                      : 0
+                    return (
+                      <div className="bg-white rounded-lg border border-slate-200/60 shadow-sm grid grid-cols-2 lg:grid-cols-4 divide-x divide-slate-100">
+                        <KpiCard label="Inspeccionadas" value={totalInsp} />
+                        <KpiCard
+                          label="Mal Ejecutados"
+                          value={totalMal}
+                          subtitle={totalInsp > 0 ? `${pct((totalMal / totalInsp) * 100)} del total` : undefined}
+                          status="bad"
+                        />
+                        <ProgressKpi
+                          label="Tasa Cierre"
+                          value={weightedCierre}
+                          displayValue={pct(weightedCierre)}
+                          thresholds={{ good: 80, warning: 50 }}
+                        />
+                        <KpiCard
+                          label="Pend. Normalizar"
+                          value={totalPendNorm}
+                          subtitle={totalPendNorm > 0 ? 'requieren seguimiento' : undefined}
+                          status={totalPendNorm > 0 ? 'bad' : 'good'}
+                        />
+                      </div>
+                    )
+                  })() : null}
+
+                  {/* ── Fila 3: Charts — Scatter 60% + Top Bar 40% ── */}
+                  <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+                    <ChartCard title="Volumen vs Tasa Mal" sub="Cuadrantes: riesgo/volumen · Clic para detalle" className="lg:col-span-3">
+                      {zonaContratistaData?.scatter_contratistas?.length ? <EChart option={scatterOption} height="280px" onEvents={scatterEvents} /> : <EmptyState text="Sin datos" />}
+                    </ChartCard>
+                    <ChartCard title="Top 10 — Tasa Mal (%)" sub="Clic para detalle" className="lg:col-span-2">
+                      {zonaContratistaData?.ranking_contratistas?.length ? <EChart option={topContratistaBarOption} height="280px" onEvents={contratistaBarEvents} /> : <EmptyState text="Sin datos" />}
+                    </ChartCard>
                   </div>
-                </Card>
 
-                {/* Inspecciones por mes */}
-                <Card className="lg:col-span-2">
-                  <Title>Volumen de Inspecciones por Mes</Title>
-                  <BarChart
-                    className="mt-4 h-64"
-                    data={mensualChartData}
-                    index="mes"
-                    categories={['cantidad']}
-                    colors={['blue']}
-                    valueFormatter={(v) => formatNumber(v)}
-                    yAxisWidth={48}
-                    showAnimation
-                  />
-                </Card>
-              </div>
+                  {/* ── Fila 4: Analisis de Causas por Contratista ── */}
+                  {zonaMalEjecutadosData && zonaMalEjecutadosData.total_mal > 0 && (
+                    <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+                      <ChartCard title="Causas por Contratista" sub={`${zonaMalEjecutadosData.causas_por_contratista.length} contratistas con mal ejecutados`} className="lg:col-span-3">
+                        {causasPorContratistaOption ? <EChart option={causasPorContratistaOption} height="280px" /> : <EmptyState text="Sin datos de causas" />}
+                      </ChartCard>
+                      <ChartCard title="Causa Principal" sub="Por contratista" className="lg:col-span-2">
+                        {(() => {
+                          const cpc = zonaMalEjecutadosData.causas_por_contratista
+                          if (!cpc?.length) return <EmptyState text="Sin datos" />
+                          const top8 = [...cpc].sort((a, b) => b.total_mal - a.total_mal)
+                          return (
+                            <div className="overflow-x-auto -mx-4 px-4">
+                              <table className="w-full text-left">
+                                <thead className="border-b border-slate-100">
+                                  <tr>
+                                    <th className="px-3 py-1.5 text-[10px] text-slate-500 uppercase tracking-wider font-medium">Contratista</th>
+                                    <th className="px-3 py-1.5 text-[10px] text-slate-500 uppercase tracking-wider font-medium">Causa Principal</th>
+                                    <th className="px-3 py-1.5 text-[10px] text-slate-500 uppercase tracking-wider font-medium text-right">Cant.</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {top8.map(c => {
+                                    const topCausa = c.causas.length > 0 ? c.causas.reduce((a, b) => b.cantidad > a.cantidad ? b : a) : null
+                                    return (
+                                      <tr key={c.contratista} className="border-b border-slate-50 hover:bg-slate-50/80 cursor-pointer transition-colors" onClick={() => setSelectedContratista(c.contratista)}>
+                                        <td className="px-3 py-2 text-[11px] font-medium text-slate-700 truncate max-w-[160px]">{c.contratista}</td>
+                                        <td className="px-3 py-2 text-[11px] text-slate-500 truncate max-w-[180px]">{topCausa ? topCausa.causa.replace(/_/g, ' ') : '–'}</td>
+                                        <td className="px-3 py-2 text-[11px] text-right text-slate-600">{topCausa ? formatNumber(topCausa.cantidad) : '–'}</td>
+                                      </tr>
+                                    )
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )
+                        })()}
+                      </ChartCard>
+                    </div>
+                  )}
 
-              {/* Top 5 Comunas con Mayor Actividad */}
-              <Card className="mb-6">
-                <Title>Comunas con Mayor Volumen de Trabajo</Title>
-                <Text className="text-gray-500">Comunas con mayor cantidad de casos registrados</Text>
-                <div className="mt-4 grid grid-cols-1 lg:grid-cols-5 gap-4">
-                  {stats?.top_comunas_problemas && stats.top_comunas_problemas.length > 0 ? (
-                    stats.top_comunas_problemas.map((comuna, idx) => (
-                      <div key={comuna.comuna} className="p-4 bg-gray-50 rounded-lg border-l-4 border-l-rose-400">
-                        <div className="flex items-start gap-2 mb-3">
-                          <span className={`flex items-center justify-center w-6 h-6 rounded-full text-sm font-bold ${
-                            idx === 0 ? 'bg-rose-100 text-rose-600' :
-                            idx === 1 ? 'bg-amber-100 text-amber-600' :
-                            'bg-gray-200 text-gray-600'
-                          }`}>{idx + 1}</span>
-                          <div>
-                            <p className="text-sm font-semibold text-gray-800">{comuna.comuna}</p>
-                            <p className="text-xs text-gray-500">{formatNumber(comuna.total)} insp.</p>
-                          </div>
+                  {/* ── Fila 5: Ranking Table — Enriquecida 9 columnas ── */}
+                  <ChartCard>
+                    <div className="flex items-center justify-between mb-2">
+                      <SectionTitle>Ranking de Contratistas</SectionTitle>
+                      <span className="text-[10px] text-slate-400">{zonaContratistaData?.ranking_contratistas?.length ?? 0} contratistas{selectedZona ? ` — ${selectedZona}` : ''}</span>
+                    </div>
+                    <div className="overflow-x-auto -mx-4 px-4">
+                      <table className="w-full text-left">
+                        <thead className="border-b border-slate-100">
+                          <tr>
+                            {['#', 'Contratista', 'Insp.', 'Mal Ej.', 'Tasa Mal', 'Multas', 'T. Multas', 'Pend. Norm.', 'T. Cierre'].map(h => (
+                              <th key={h} className={`px-2 py-2 text-[10px] text-slate-500 uppercase tracking-wider font-medium ${h !== '#' && h !== 'Contratista' ? 'text-right' : ''} ${h === 'Tasa Mal' ? 'min-w-[130px]' : ''}`}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(() => {
+                            const ranking = zonaContratistaData?.ranking_contratistas
+                            if (!ranking?.length) return <tr><td colSpan={9} className="text-center py-8 text-slate-400 text-[11px]">Sin datos de contratistas</td></tr>
+                            const maxTasaMal = Math.max(...ranking.map(r => r.tasa_mal), 1)
+                            return ranking.map((row, i) => (
+                              <tr key={row.contratista} className="border-b border-slate-50 hover:bg-slate-50/80 cursor-pointer transition-colors" onClick={() => setSelectedContratista(row.contratista)}>
+                                <td className="px-2 py-2.5 text-[11px] text-slate-400">{i + 1}</td>
+                                <td className="px-2 py-2.5 text-[11px] font-medium text-slate-700">{row.contratista}</td>
+                                <td className="px-2 py-2.5 text-[11px] text-right text-slate-600">{formatNumber(row.inspecciones)}</td>
+                                <td className="px-2 py-2.5 text-[11px] text-right text-slate-600">{formatNumber(row.mal_ejecutado)}</td>
+                                <td className="px-2 py-2.5 text-[11px] text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <div className="w-14 h-[5px] bg-slate-100 rounded-full overflow-hidden">
+                                      <div className={`h-full rounded-full ${row.tasa_mal >= 30 ? 'bg-red-600' : row.tasa_mal >= 15 ? 'bg-amber-500' : 'bg-green-600'}`} style={{ width: `${Math.min(100, (row.tasa_mal / maxTasaMal) * 100)}%` }} />
+                                    </div>
+                                    <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${row.tasa_mal >= 30 ? 'bg-red-50 text-red-700' : row.tasa_mal >= 15 ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700'}`}>{pct(row.tasa_mal)}</span>
+                                  </div>
+                                </td>
+                                <td className="px-2 py-2.5 text-[11px] text-right text-slate-600">{formatNumber(row.multas)}</td>
+                                <td className="px-2 py-2.5 text-[11px] text-right">
+                                  <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${row.tasa_multas >= 10 ? 'bg-red-50 text-red-700' : row.tasa_multas >= 5 ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700'}`}>{pct(row.tasa_multas)}</span>
+                                </td>
+                                <td className="px-2 py-2.5 text-[11px] text-right text-slate-600">{formatNumber(row.pend_norm)}</td>
+                                <td className="px-2 py-2.5 text-[11px] text-right">
+                                  <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${row.tasa_cierre >= 80 ? 'bg-green-50 text-green-700' : row.tasa_cierre >= 50 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>{pct(row.tasa_cierre)}</span>
+                                </td>
+                              </tr>
+                            ))
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                  </ChartCard>
+                </div>
+              )}
+            </TabPanel>
+
+            {/* ═══ TAB C — Mal Ejecutados ═══ */}
+            <TabPanel>
+              {activeTab !== 2 ? null : dashboardLoading ? (
+                <div className="flex items-center justify-center h-48"><Loader2 size={24} className="animate-spin text-slate-400" /></div>
+              ) : !zonaMalEjecutadosData || zonaMalEjecutadosData.total_mal === 0 ? (
+                <div className="bg-white rounded-lg border border-slate-200 p-8 text-center mt-3">
+                  <CheckCircle size={24} className="mx-auto text-green-500 mb-2" />
+                  <p className="text-sm text-slate-600">No hay registros mal ejecutados en este periodo</p>
+                </div>
+              ) : (
+                <div className="space-y-3 mt-3">
+                  {/* KPI strip — executive style */}
+                  {(() => {
+                    const d = zonaMalEjecutadosData
+                    const causas = d.causas_individuales
+                    const totalHallazgos = causas.reduce((s, c) => s + c.cantidad, 0)
+                    const causasDistintas = causas.length
+                    const topCausa = causas.length > 0 ? causas[0] : null
+                    const causas80 = causas.filter(c => c.acumulado_pct <= 80).length
+                    const hallazgosPorTrabajo = d.total_mal > 0 ? (totalHallazgos / d.total_mal).toFixed(1) : '0'
+                    return (
+                      <div className="bg-white rounded-lg border border-slate-200/60 shadow-sm grid grid-cols-2 lg:grid-cols-4 divide-x divide-slate-100">
+                        <HeroKpi
+                          label="Total Mal Ejecutados"
+                          value={d.total_mal}
+                          subtitle={`${formatNumber(totalHallazgos)} hallazgos (${hallazgosPorTrabajo}/trabajo)${selectedZona ? ` — ${selectedZona}` : ''}`}
+                          status="bad"
+                        />
+                        <KpiCard label="Causas Distintas" value={causasDistintas} subtitle={`${causas80} causan el 80%`} />
+                        <KpiCard
+                          label="Causa Principal"
+                          value={topCausa ? topCausa.causa.replace(/_/g, ' ') : '–'}
+                          subtitle={topCausa ? `${formatNumber(topCausa.cantidad)} hallazgos (${pct(topCausa.pct)})` : ''}
+                          status="bad"
+                        />
+                        <KpiCard label="Contratistas" value={d.causas_por_contratista.length} subtitle={`${d.causas_por_zona.length} zona${d.causas_por_zona.length !== 1 ? 's' : ''}`} />
+                      </div>
+                    )
+                  })()}
+
+                  {/* Pareto + Zona/Contratista */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                    <ChartCard title="Pareto de Causas" sub="Linea punteada: 80%" className="lg:col-span-2">
+                      {zonaMalEjecutadosData.causas_individuales.length > 0 ? (
+                        <EChart
+                          option={{
+                            tooltip: { ...TOOLTIP_STYLE, trigger: 'axis' as const, axisPointer: { type: 'cross' as const } },
+                            legend: { ...LEGEND_STYLE, data: ['Cantidad', '% Acumulado'] },
+                            grid: { ...GRID_STYLE, left: 12 },
+                            xAxis: { type: 'category' as const, data: zonaMalEjecutadosData.causas_individuales.map(c => c.causa.replace(/_/g, ' ')), ...CATEGORY_AXIS, axisLabel: { rotate: 35, fontSize: 9, color: '#64748b', interval: 0 } },
+                            yAxis: [
+                              { type: 'value' as const, ...AXIS_STYLE },
+                              { type: 'value' as const, ...AXIS_STYLE, min: 0, max: 100, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: '{value}%' } },
+                            ],
+                            series: [
+                              { name: 'Cantidad', type: 'bar' as const, data: zonaMalEjecutadosData.causas_individuales.map(c => c.cantidad), itemStyle: { color: CHART_COLORS.danger, borderRadius: BAR_RADIUS }, barMaxWidth: 28 },
+                              {
+                                name: '% Acumulado', type: 'line' as const, yAxisIndex: 1, data: zonaMalEjecutadosData.causas_individuales.map(c => c.acumulado_pct),
+                                smooth: true, lineStyle: { color: CHART_COLORS.warning, width: 2 }, itemStyle: { color: CHART_COLORS.warning }, showSymbol: false,
+                                markLine: { data: [{ yAxis: 80, lineStyle: { type: 'dashed' as const, color: '#cbd5e1' } }], label: { formatter: '80%', fontSize: 10, color: '#94a3b8' } },
+                              },
+                            ],
+                          }}
+                          height="260px"
+                        />
+                      ) : <EmptyState text="Sin datos" />}
+                    </ChartCard>
+                    <ChartCard title="Por Contratista" sub="Clic para filtrar">
+                      {zonaMalEjecutadosData.causas_por_contratista.length > 0 ? (
+                        <EChart
+                          option={{
+                            tooltip: { ...TOOLTIP_STYLE, trigger: 'axis' as const },
+                            grid: { left: 8, right: 20, bottom: 8, top: 8, containLabel: true },
+                            xAxis: { type: 'value' as const, ...AXIS_STYLE },
+                            yAxis: { type: 'category' as const, data: zonaMalEjecutadosData.causas_por_contratista.map(c => c.contratista), ...CATEGORY_AXIS, axisLabel: { fontSize: 10, color: '#64748b', width: 120, overflow: 'truncate' as const } },
+                            series: [{
+                              type: 'bar' as const, barMaxWidth: 18,
+                              data: zonaMalEjecutadosData.causas_por_contratista.map(c => ({ value: c.total_mal, itemStyle: { color: CHART_COLORS.danger, borderRadius: BAR_RADIUS_H } })),
+                              label: { show: true, position: 'right' as const, fontSize: 10, color: '#64748b' },
+                            }],
+                          }}
+                          height="260px"
+                          onEvents={{ click: (p: { name?: string }) => { if (p.name) addDrillFilter('contratista', 'Contratista', p.name) } }}
+                        />
+                      ) : <EmptyState text="Sin datos" />}
+                    </ChartCard>
+                  </div>
+
+                  {/* Causas por contratista table */}
+                  <ChartCard title="Causas por Contratista">
+                    <div className="overflow-x-auto -mx-4 px-4 max-h-[270px] overflow-y-auto">
+                      <table className="w-full text-left">
+                        <thead className="border-b border-slate-100">
+                          <tr>
+                            <th className="px-3 py-2 text-[10px] text-slate-500 uppercase tracking-wider font-medium">Contratista</th>
+                            <th className="px-3 py-2 text-[10px] text-slate-500 uppercase tracking-wider font-medium text-right">Mal</th>
+                            <th className="px-3 py-2 text-[10px] text-slate-500 uppercase tracking-wider font-medium">Causas</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {zonaMalEjecutadosData.causas_por_contratista.map((row) => (
+                            <tr key={row.contratista} className="border-b border-slate-50 hover:bg-slate-50/80 cursor-pointer transition-colors" onClick={() => addDrillFilter('contratista', 'Contratista', row.contratista)}>
+                              <td className="px-3 py-2.5 text-[11px] font-medium text-slate-700">{row.contratista}</td>
+                              <td className="px-3 py-2.5 text-[11px] text-right"><span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-50 text-red-600">{row.total_mal}</span></td>
+                              <td className="px-3 py-2.5 text-[11px]">
+                                <div className="flex flex-wrap gap-1">
+                                  {row.causas.slice(0, 3).map((c) => (
+                                    <span key={c.causa} className="inline-flex px-1.5 py-0.5 rounded text-[9px] bg-slate-100 text-slate-600">{c.causa.replace(/_/g, ' ')} ({c.cantidad})</span>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </ChartCard>
+
+                  {/* All causes table — compact */}
+                  <ChartCard title="Todas las Causas">
+                    <div className="overflow-x-auto -mx-4 px-4 max-h-[300px] overflow-y-auto">
+                      <table className="w-full text-left">
+                        <thead className="sticky top-0 bg-white border-b border-slate-100">
+                          <tr>
+                            {['#', 'Causa', 'Cant.', '%', 'Acum.'].map(h => (
+                              <th key={h} className={`px-3 py-2 text-[10px] text-slate-500 uppercase tracking-wider font-medium ${h !== '#' && h !== 'Causa' ? 'text-right' : ''}`}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {zonaMalEjecutadosData.causas_individuales.map((row, i) => (
+                            <tr key={row.causa} className="border-b border-slate-50 hover:bg-slate-50/80">
+                              <td className="px-3 py-2.5 text-[11px] text-slate-400">{i + 1}</td>
+                              <td className="px-3 py-2.5 text-[11px] font-medium text-slate-700">{row.causa.replace(/_/g, ' ')}</td>
+                              <td className="px-3 py-2.5 text-[11px] text-right text-slate-600">{formatNumber(row.cantidad)}</td>
+                              <td className="px-3 py-2.5 text-[11px] text-right text-slate-600">{pct(row.pct)}</td>
+                              <td className="px-3 py-2.5 text-[11px] text-right">
+                                <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium ${row.acumulado_pct <= 80 ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
+                                  {pct(row.acumulado_pct)}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </ChartCard>
+                </div>
+              )}
+            </TabPanel>
+
+            {/* ═══ TAB D — OCA ═══ */}
+            <TabPanel>
+              {activeTab !== 3 ? null : dashboardLoading ? (
+                <div className="flex items-center justify-center h-48"><Loader2 size={24} className="animate-spin text-slate-400" /></div>
+              ) : (
+                <div className="space-y-3 mt-3">
+                  {/* ── Fila 1: Hero KPIs ── */}
+                  {(() => {
+                    const ranking = zonaOcaData?.ranking_inspectores ?? []
+                    const kpisBase = overviewData?.kpis
+                    const efectividad = kpisBase?.tasa_efectividad_oca ?? 0
+                    const noEfectiva = kpisBase?.pct_no_efectiva ?? 0
+                    const uniqueZonas = new Set(ranking.flatMap(r => r.zonas))
+                    return (
+                      <div className="bg-white rounded-lg border border-slate-200/60 shadow-sm grid grid-cols-3 divide-x divide-slate-100">
+                        <HeroKpi
+                          label="Tasa Efectividad"
+                          value={pct(efectividad)}
+                          status={efectividad >= 80 ? 'good' : efectividad >= 50 ? 'neutral' : 'bad'}
+                        />
+                        <HeroKpi
+                          label="Inspectores Activos"
+                          value={ranking.length}
+                          subtitle={`en ${uniqueZonas.size} zona${uniqueZonas.size !== 1 ? 's' : ''}`}
+                          status="neutral"
+                        />
+                        <HeroKpi
+                          label="No Efectivas"
+                          value={pct(noEfectiva)}
+                          subtitle="del total inspeccionadas"
+                          status={noEfectiva > 20 ? 'bad' : 'neutral'}
+                        />
+                      </div>
+                    )
+                  })()}
+
+                  {/* ── Fila 2: Operational KPIs ── */}
+                  {(() => {
+                    const ranking = zonaOcaData?.ranking_inspectores ?? []
+                    const kpisBase = overviewData?.kpis
+                    const totalInsp = kpisBase?.total_inspecciones ?? 0
+                    const promInsp = ranking.length > 0 ? Math.round(ranking.reduce((s, r) => s + r.inspecciones, 0) / ranking.length) : 0
+                    const avance = kpisBase?.pct_avance ?? 0
+                    const peorEfect = ranking.length > 0 ? Math.min(...ranking.map(r => r.tasa_efectividad)) : 0
+                    const peorNombre = ranking.find(r => r.tasa_efectividad === peorEfect)?.inspector ?? ''
+                    return (
+                      <div className="bg-white rounded-lg border border-slate-200/60 shadow-sm grid grid-cols-2 lg:grid-cols-4 divide-x divide-slate-100">
+                        <KpiCard label="Inspeccionadas" value={totalInsp} />
+                        <KpiCard label="Prom/Inspector" value={promInsp} />
+                        <div className="px-4 py-3">
+                          <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Avance</p>
+                          {(() => {
+                            const level = avance >= 80 ? 'good' : avance >= 50 ? 'warning' : 'bad'
+                            const barColor = level === 'good' ? 'bg-green-700' : level === 'warning' ? 'bg-amber-600' : 'bg-red-700'
+                            const valueColor = level === 'good' ? 'text-green-700' : level === 'warning' ? 'text-amber-700' : 'text-red-700'
+                            const ej = ejecucionStats
+                            return (
+                              <>
+                                <p className={`text-lg font-semibold ${valueColor} mt-1 leading-none tracking-tight`}>{pct(avance)}</p>
+                                <div className="mt-2 w-full bg-slate-100 rounded-full h-[3px] overflow-hidden">
+                                  <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(100, avance)}%` }} />
+                                </div>
+                                {ej && ej.fecha_envio && !ej.completado && ej.fecha_proyectada && (
+                                  <p className="text-[10px] text-slate-500 mt-1.5">
+                                    {ej.dias_habiles}d · Proy: {new Date(ej.fecha_proyectada + 'T00:00:00').toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })}
+                                  </p>
+                                )}
+                              </>
+                            )
+                          })()}
                         </div>
-                        <div className="space-y-2">
-                          <div className="flex justify-between text-xs">
-                            <span className="text-gray-500">Mal ejecutados</span>
-                            <span className="font-medium text-amber-600">{comuna.mal_ejecutados}</span>
-                          </div>
-                          <div className="flex justify-between text-xs">
-                            <span className="text-gray-500">Disconformes</span>
-                            <span className="font-medium text-rose-600">{comuna.disconformes}</span>
-                          </div>
-                          <div className="flex justify-between text-xs">
-                            <span className="text-gray-500">No cumple norma</span>
-                            <span className="font-medium text-violet-600">{comuna.no_cumple_norma}</span>
-                          </div>
-                          <div className="pt-2 border-t mt-2">
-                            <p className="text-lg font-bold text-rose-600">{comuna.tasa_mal_ejecutado}%</p>
-                            <p className="text-xs text-gray-400">tasa mal ejecutado</p>
-                          </div>
+                        <KpiCard
+                          label="Peor Efectividad"
+                          value={pct(peorEfect)}
+                          subtitle={peorNombre}
+                          status={peorEfect < 50 ? 'bad' : peorEfect < 80 ? 'neutral' : 'good'}
+                        />
+                      </div>
+                    )
+                  })()}
+
+                  {/* ── Fila 3: Charts — Tendencia 60% + Efectividad Zona 40% ── */}
+                  <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+                    <div className="bg-white rounded-lg border border-slate-200/60 shadow-sm px-4 py-3 lg:col-span-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <h3 className="text-xs font-semibold text-slate-700 tracking-tight">Tendencia Efectividad</h3>
+                          <p className="text-[10px] text-slate-400 mt-0.5">Linea punteada: 80% meta</p>
+                        </div>
+                        <div className="flex gap-0.5 bg-slate-100 rounded p-0.5">
+                          {(['mensual', 'semanal', 'diario'] as const).map(v => (
+                            <button
+                              key={v}
+                              onClick={() => setOcaTendenciaView(v)}
+                              className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
+                                ocaTendenciaView === v
+                                  ? 'bg-white text-slate-700 shadow-sm'
+                                  : 'text-slate-400 hover:text-slate-600'
+                              }`}
+                            >
+                              {v === 'mensual' ? 'Mes' : v === 'semanal' ? 'Sem' : 'Dia'}
+                            </button>
+                          ))}
                         </div>
                       </div>
-                    ))
-                  ) : (
-                    <div className="col-span-5 text-center py-6 text-gray-400">
-                      <AlertCircle size={24} className="mx-auto mb-2" />
-                      <p className="text-sm">No hay datos suficientes</p>
+                      {zonaOcaTendencia.length ? <EChart option={tendenciaEfectividadOption} height="280px" /> : <EmptyState text="Sin datos de tendencia" />}
+                    </div>
+                    <ChartCard title="Efectividad por Zona" sub="Colores: semaforo por umbral" className="lg:col-span-2">
+                      {zonaOcaData?.efectividad_por_zona?.length ? <EChart option={efectividadZonaOption} height="280px" /> : <EmptyState text="Sin datos por zona" />}
+                    </ChartCard>
+                  </div>
+
+                  {/* ── Fila 4: Charts — Scatter 60% + Top 10 Bar 40% ── */}
+                  <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+                    <ChartCard title="Volumen vs Efectividad" sub="Cuadrantes: meta 80% + promedio volumen" className="lg:col-span-3">
+                      {zonaOcaData?.ranking_inspectores?.length ? <EChart option={inspectorScatterOption} height="280px" /> : <EmptyState text="Sin datos" />}
+                    </ChartCard>
+                    <ChartCard title="Top 10 Inspectores" sub="Por volumen — label con % efectividad" className="lg:col-span-2">
+                      {zonaOcaData?.ranking_inspectores?.length ? <EChart option={topInspectoresBarOption} height="280px" /> : <EmptyState text="Sin datos" />}
+                    </ChartCard>
+                  </div>
+
+                  {/* ── Fila 5: Ranking Table — 7 columnas ── */}
+                  <ChartCard>
+                    <div className="flex items-center justify-between mb-2">
+                      <SectionTitle>Ranking de Inspectores</SectionTitle>
+                      <span className="text-[10px] text-slate-400">{zonaOcaData?.ranking_inspectores?.length ?? 0} inspectores{selectedZona ? ` — ${selectedZona}` : ''}</span>
+                    </div>
+                    <div className="overflow-x-auto -mx-4 px-4 max-h-[400px] overflow-y-auto">
+                      <table className="w-full text-left">
+                        <thead className="sticky top-0 bg-white border-b border-slate-100">
+                          <tr>
+                            {['#', 'Inspector', 'Insp.', 'Efectivas', 'T. Efectividad', 'Mal Ej.', 'Multas'].map(h => (
+                              <th key={h} className={`px-2 py-2 text-[10px] text-slate-500 uppercase tracking-wider font-medium ${h !== '#' && h !== 'Inspector' ? 'text-right' : ''} ${h === 'T. Efectividad' ? 'min-w-[140px]' : ''}`}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(() => {
+                            const ranking = zonaOcaData?.ranking_inspectores
+                            if (!ranking?.length) return <tr><td colSpan={7} className="text-center py-8 text-slate-400 text-[11px]">Sin datos de inspectores</td></tr>
+                            const maxEfect = Math.max(...ranking.map(r => r.tasa_efectividad), 1)
+                            return ranking.map((row, i) => (
+                              <tr key={row.inspector} className="border-b border-slate-50 hover:bg-slate-50/80 transition-colors">
+                                <td className="px-2 py-2.5 text-[11px] text-slate-400">{i + 1}</td>
+                                <td className="px-2 py-2.5 text-[11px] font-medium text-slate-700">{row.inspector}</td>
+                                <td className="px-2 py-2.5 text-[11px] text-right text-slate-600">{formatNumber(row.inspecciones)}</td>
+                                <td className="px-2 py-2.5 text-[11px] text-right text-slate-600">{formatNumber(row.efectivas)}</td>
+                                <td className="px-2 py-2.5 text-[11px] text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <div className="w-14 h-[5px] bg-slate-100 rounded-full overflow-hidden">
+                                      <div className={`h-full rounded-full ${row.tasa_efectividad >= 80 ? 'bg-green-600' : row.tasa_efectividad >= 50 ? 'bg-amber-500' : 'bg-red-600'}`} style={{ width: `${Math.min(100, (row.tasa_efectividad / maxEfect) * 100)}%` }} />
+                                    </div>
+                                    <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${row.tasa_efectividad >= 80 ? 'bg-green-50 text-green-700' : row.tasa_efectividad >= 50 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>{pct(row.tasa_efectividad)}</span>
+                                  </div>
+                                </td>
+                                <td className="px-2 py-2.5 text-[11px] text-right text-slate-600">{formatNumber(row.mal_ejecutado)}</td>
+                                <td className="px-2 py-2.5 text-[11px] text-right text-slate-600">{formatNumber(row.multas)}</td>
+                              </tr>
+                            ))
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                  </ChartCard>
+                </div>
+              )}
+            </TabPanel>
+
+            {/* ═══ TAB E — Detalle ═══ */}
+            <TabPanel>
+              {activeTab === 4 && <div className="space-y-3 mt-3">
+                {/* Filter bar */}
+                <div className="bg-white rounded-lg border border-slate-200/60 shadow-sm px-4 py-2.5 space-y-2">
+                  {/* Row 1: Dropdown filters */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider mr-1">Filtrar:</span>
+                    <MultiSelect
+                      options={bases}
+                      selected={(drillFilters.find(f => f.key === 'base')?.value ?? '').split(',').filter(Boolean)}
+                      onChange={(vals) => vals.length ? addDrillFilter('base', 'Base', vals.join(',')) : removeDrillFilter('base')}
+                      placeholder="Todas las bases"
+                      className="min-w-[160px]"
+                    />
+                    <MultiSelect
+                      options={zonas}
+                      selected={(drillFilters.find(f => f.key === 'zona')?.value ?? '').split(',').filter(Boolean)}
+                      onChange={(vals) => vals.length ? addDrillFilter('zona', 'Zona', vals.join(',')) : removeDrillFilter('zona')}
+                      placeholder="Todas las zonas"
+                      className="min-w-[130px]"
+                    />
+                    <MultiSelect
+                      options={(contratistaData?.ranking_contratistas ?? []).map(c => c.contratista)}
+                      selected={(drillFilters.find(f => f.key === 'contratista')?.value ?? '').split(',').filter(Boolean)}
+                      onChange={(vals) => vals.length ? addDrillFilter('contratista', 'Contratista', vals.join(',')) : removeDrillFilter('contratista')}
+                      placeholder="Todos los contratistas"
+                      className="min-w-[160px]"
+                    />
+                    <MultiSelect
+                      options={['Bien Ejecutado', 'Mal Ejecutado', 'No Efectiva']}
+                      selected={(drillFilters.find(f => f.key === 'resultado')?.value ?? '').split(',').filter(Boolean)}
+                      onChange={(vals) => vals.length ? addDrillFilter('resultado', 'Resultado', vals.join(',')) : removeDrillFilter('resultado')}
+                      placeholder="Todos los resultados"
+                      className="min-w-[150px]"
+                    />
+                    <div className="flex-1" />
+                    <div className="w-48"><TextInput placeholder="Buscar..." value={detailSearch} onChange={(e) => setDetailSearch(e.target.value)} icon={Search} /></div>
+                    <ExportDropdown onExport={handleExport} loading={exportLoading} loadingFormat={exportLoadingFormat} totalRecords={detailData?.total} hasFilters={drillFilters.length > 0 || !!detailSearch} />
+                  </div>
+                  {/* Row 2: Active filter chips */}
+                  {drillFilters.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
+                      <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Activos:</span>
+                      {drillFilters.map((f) => <FilterChip key={f.key} filter={f} onRemove={removeDrillFilter} />)}
+                      <button onClick={clearAllFilters} className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors ml-1">Limpiar todo</button>
                     </div>
                   )}
                 </div>
-              </Card>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Tendencia Efectividad por Zona */}
-                <Card>
-                  <Title>Tendencia de Efectividad</Title>
-                  <Text className="text-gray-500">Meta: {META_EFECTIVIDAD}%</Text>
-                  <AreaChart
-                    className="mt-4 h-48"
-                    data={mensualChartData}
-                    index="mes"
-                    categories={['efectividad', 'meta']}
-                    colors={['emerald', 'gray']}
-                    valueFormatter={(v) => `${v}%`}
-                    yAxisWidth={40}
-                    showAnimation
-                  />
-                </Card>
-
-                {/* Calidad del Contratista - Multas */}
-                <Card>
-                  <Title>Calidad del Contratista</Title>
-                  <Text className="text-gray-500">Multas aplicadas por incumplimiento</Text>
-                  <div className="mt-6 space-y-6">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-4 bg-red-50 rounded-lg text-center">
-                        <p className="text-2xl font-bold text-red-600">{formatNumber(stats?.con_multa || 0)}</p>
-                        <Text className="text-sm text-gray-600 mt-1">Con Multa</Text>
-                        <p className="text-xs text-gray-400 mt-1">
-                          {stats?.total ? ((stats.con_multa / stats.total) * 100).toFixed(1) : 0}% del total
-                        </p>
-                      </div>
-                      <div className="p-4 bg-orange-50 rounded-lg text-center">
-                        <p className="text-2xl font-bold text-orange-600">{formatNumber(stats?.pendientes_normalizar || 0)}</p>
-                        <Text className="text-sm text-gray-600 mt-1">Pendientes Normalizar</Text>
-                      </div>
-                    </div>
-                    <div>
-                      <Flex justifyContent="between" className="mb-2">
-                        <Text className="text-sm font-medium">Tasa de Cumplimiento (Sin Multa)</Text>
-                        <Text className="text-sm font-semibold text-emerald-600">
-                          {stats ? (100 - (stats.con_multa / stats.total) * 100).toFixed(1) : 0}%
-                        </Text>
-                      </Flex>
-                      <ProgressBar
-                        value={stats ? 100 - (stats.con_multa / stats.total) * 100 : 0}
-                        color="emerald"
-                      />
-                    </div>
+                {/* Detail table */}
+                <ChartCard>
+                  <div className="flex items-center justify-between mb-2">
+                    <SectionTitle>Registros de Inspecciones</SectionTitle>
+                    {detailData && <span className="text-[10px] text-slate-400">{formatNumber(detailData.total)} reg. — pag. {detailData.page}/{detailData.pages}</span>}
                   </div>
-                </Card>
-              </div>
-            </TabPanel>
 
-            {/* Tendencias Panel */}
-            <TabPanel>
-              <Card>
-                  <Title>Comparativa Mes Actual vs Anterior</Title>
-                  <Text className="text-gray-500">Variacion de indicadores clave</Text>
-                  <div className="mt-6 space-y-4">
-                    {/* Efectividad */}
-                    <div className="p-4 bg-gray-50 rounded-lg">
-                      <Flex justifyContent="between" alignItems="center">
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">Efectividad OCA</p>
-                          <p className="text-xs text-gray-400 mt-1">
-                            Anterior: {stats?.comparativas.efectividad.anterior || 0}%
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xl font-bold text-oca-blue">{stats?.comparativas.efectividad.actual || 0}%</p>
-                          {stats && stats.comparativas.efectividad.diferencia !== 0 && (
-                            <div className={`flex items-center justify-end gap-1 ${
-                              stats.comparativas.efectividad.diferencia > 0 ? 'text-emerald-600' : 'text-rose-600'
-                            }`}>
-                              {stats.comparativas.efectividad.diferencia > 0 ? (
-                                <TrendingUp size={14} />
-                              ) : (
-                                <TrendingDown size={14} />
-                              )}
-                              <span className="text-sm font-semibold">
-                                {stats.comparativas.efectividad.diferencia > 0 ? '+' : ''}
-                                {stats.comparativas.efectividad.diferencia}%
-                              </span>
-                            </div>
+                  {detailLoading ? (
+                    <div className="flex items-center justify-center h-40"><Loader2 size={20} className="animate-spin text-slate-400" /></div>
+                  ) : (
+                    <div className="overflow-x-auto -mx-4 px-4">
+                      <table className="w-full text-left">
+                        <thead className="border-b border-slate-100">
+                          <tr>
+                            {['VTA', 'Fecha', 'Zona', 'Comuna', 'Contratista', 'Resultado', 'Multa', 'Causa', ''].map(h => (
+                              <th key={h} className="px-3 py-2 text-[10px] text-slate-500 uppercase tracking-wider font-medium">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {detailData?.items?.map((item) => {
+                            const vta = (item.vta || '').toString().replace(/\.0$/, '')
+                            const resultado = item.resultado_inspeccion || item.resultado || ''
+                            const causa = item.categoria_mal_ejecutado || item.causa || ''
+                            const multa = item.multa || ''
+                            const contratista = item.contratista_enel || item.contratista || ''
+                            const hasLink = item.link_formulario && item.link_formulario !== '' && item.link_formulario !== 'None'
+                            return (
+                              <tr
+                                key={item.id}
+                                className="border-b border-slate-50 hover:bg-slate-50/80 cursor-pointer transition-colors"
+                                onClick={() => setSelectedMapPoint(detailToMapPoint(item))}
+                              >
+                                <td className="px-3 py-2.5 text-[11px] font-medium text-slate-700 whitespace-nowrap">{vta || '–'}</td>
+                                <td className="px-3 py-2.5 text-[11px] text-slate-500 whitespace-nowrap">{item.fecha_inspeccion || item.fecha || '–'}</td>
+                                <td className="px-3 py-2.5 text-[11px] text-slate-600">{item.zona}</td>
+                                <td className="px-3 py-2.5 text-[11px] text-slate-600">{item.comuna}</td>
+                                <td className="px-3 py-2.5 text-[11px] font-medium text-slate-700">{contratista}</td>
+                                <td className="px-3 py-2.5 text-[11px]">
+                                  <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium ${resultado.toUpperCase().includes('MAL') ? 'bg-red-50 text-red-700' : resultado.toUpperCase().includes('BIEN') ? 'bg-green-50 text-green-700' : 'bg-slate-100 text-slate-600'}`}>
+                                    {resultado || '–'}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2.5 text-[11px]">
+                                  {multa.toUpperCase() === 'SI' ? (
+                                    <span className="inline-flex px-1.5 py-0.5 rounded text-[9px] font-semibold bg-red-50 text-red-600">SI</span>
+                                  ) : (
+                                    <span className="text-slate-400">{multa || '–'}</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2.5 text-[11px] text-slate-400 max-w-[180px] truncate" title={causa.replace(/_/g, ' ')}>{causa ? causa.replace(/_/g, ' ') : '–'}</td>
+                                <td className="px-3 py-2.5 text-[11px]">
+                                  {hasLink && (
+                                    <a
+                                      href={item.link_formulario!}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+                                    >
+                                      <ExternalLink size={11} />
+                                    </a>
+                                  )}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                          {!detailData?.items?.length && (
+                            <tr><td colSpan={9} className="text-center py-8 text-slate-400 text-[11px]">{detailLoading ? 'Cargando...' : 'No se encontraron registros'}</td></tr>
                           )}
-                        </div>
-                      </Flex>
+                        </tbody>
+                      </table>
                     </div>
+                  )}
 
-                    {/* Bien Ejecutado */}
-                    <div className="p-4 bg-gray-50 rounded-lg">
-                      <Flex justifyContent="between" alignItems="center">
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">Trabajo Bien Ejecutado</p>
-                          <p className="text-xs text-gray-400 mt-1">
-                            Anterior: {stats?.comparativas.bien_ejecutado.anterior || 0}%
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xl font-bold text-emerald-600">{stats?.comparativas.bien_ejecutado.actual || 0}%</p>
-                          {stats && stats.comparativas.bien_ejecutado.diferencia !== 0 && (
-                            <div className={`flex items-center justify-end gap-1 ${
-                              stats.comparativas.bien_ejecutado.diferencia > 0 ? 'text-emerald-600' : 'text-rose-600'
-                            }`}>
-                              {stats.comparativas.bien_ejecutado.diferencia > 0 ? (
-                                <TrendingUp size={14} />
-                              ) : (
-                                <TrendingDown size={14} />
-                              )}
-                              <span className="text-sm font-semibold">
-                                {stats.comparativas.bien_ejecutado.diferencia > 0 ? '+' : ''}
-                                {stats.comparativas.bien_ejecutado.diferencia}%
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </Flex>
+                  {/* Pagination */}
+                  {detailData && detailData.pages > 1 && (
+                    <div className="flex items-center justify-center mt-3 gap-0.5">
+                      <button onClick={() => setDetailPage((p) => Math.max(1, p - 1))} disabled={detailData.page <= 1 || detailLoading} className="px-2 py-1 rounded text-[11px] text-slate-500 hover:bg-slate-100 disabled:opacity-40 transition-colors">
+                        <ChevronLeft size={13} />
+                      </button>
+                      {Array.from({ length: Math.min(7, detailData.pages) }, (_, i) => {
+                        const page = detailData.pages <= 7 ? i + 1 : detailData.page <= 4 ? i + 1 : detailData.page >= detailData.pages - 3 ? detailData.pages - 6 + i : detailData.page - 3 + i
+                        return (
+                          <button key={page} onClick={() => setDetailPage(page)} disabled={detailLoading}
+                            className={`w-7 h-7 rounded text-[11px] font-medium transition-colors ${page === detailData.page ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>
+                            {page}
+                          </button>
+                        )
+                      })}
+                      <button onClick={() => setDetailPage((p) => Math.min(detailData.pages, p + 1))} disabled={detailData.page >= detailData.pages || detailLoading} className="px-2 py-1 rounded text-[11px] text-slate-500 hover:bg-slate-100 disabled:opacity-40 transition-colors">
+                        <ChevronRight size={13} />
+                      </button>
                     </div>
+                  )}
+                </ChartCard>
 
-                    {/* Conformidad */}
-                    <div className="p-4 bg-gray-50 rounded-lg">
-                      <Flex justifyContent="between" alignItems="center">
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">Conformidad del Cliente</p>
-                          <p className="text-xs text-gray-400 mt-1">
-                            Anterior: {stats?.comparativas.conformidad.anterior || 0}%
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xl font-bold text-amber-600">{stats?.comparativas.conformidad.actual || 0}%</p>
-                          {stats && stats.comparativas.conformidad.diferencia !== 0 && (
-                            <div className={`flex items-center justify-end gap-1 ${
-                              stats.comparativas.conformidad.diferencia > 0 ? 'text-emerald-600' : 'text-rose-600'
-                            }`}>
-                              {stats.comparativas.conformidad.diferencia > 0 ? (
-                                <TrendingUp size={14} />
-                              ) : (
-                                <TrendingDown size={14} />
-                              )}
-                              <span className="text-sm font-semibold">
-                                {stats.comparativas.conformidad.diferencia > 0 ? '+' : ''}
-                                {stats.comparativas.conformidad.diferencia}%
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </Flex>
-                    </div>
-
-                    {/* Cumple Norma CC */}
-                    <div className="p-4 bg-gray-50 rounded-lg">
-                      <Flex justifyContent="between" alignItems="center">
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">Cumplimiento Norma CC</p>
-                          <p className="text-xs text-gray-400 mt-1">
-                            Anterior: {stats?.comparativas.cumple_norma_cc.anterior || 0}%
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xl font-bold text-violet-600">{stats?.comparativas.cumple_norma_cc.actual || 0}%</p>
-                          {stats && stats.comparativas.cumple_norma_cc.diferencia !== 0 && (
-                            <div className={`flex items-center justify-end gap-1 ${
-                              stats.comparativas.cumple_norma_cc.diferencia > 0 ? 'text-emerald-600' : 'text-rose-600'
-                            }`}>
-                              {stats.comparativas.cumple_norma_cc.diferencia > 0 ? (
-                                <TrendingUp size={14} />
-                              ) : (
-                                <TrendingDown size={14} />
-                              )}
-                              <span className="text-sm font-semibold">
-                                {stats.comparativas.cumple_norma_cc.diferencia > 0 ? '+' : ''}
-                                {stats.comparativas.cumple_norma_cc.diferencia}%
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </Flex>
-                    </div>
-                  </div>
-                </Card>
-
-            </TabPanel>
-
-            {/* Datos Panel */}
-            <TabPanel>
-              {/* Table Filters */}
-              <Card className="mb-4">
-                <Flex justifyContent="between" alignItems="end" className="flex-wrap gap-4">
-                  <div className="flex flex-wrap gap-3">
-                    <div className="w-56">
-                      <TextInput
-                        icon={Search}
-                        placeholder="Buscar..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                      />
-                    </div>
-                    <div className="w-48">
-                      <Select value={inspector} onValueChange={setInspector} placeholder="Inspector">
-                        <SelectItem value="">Todos</SelectItem>
-                        {inspectors.slice(0, 20).map(i => (
-                          <SelectItem key={i.inspector} value={i.inspector}>{i.inspector}</SelectItem>
-                        ))}
-                      </Select>
-                    </div>
-                    <div className="w-56">
-                      <DateRangePicker
-                        value={dateRange}
-                        onValueChange={setDateRange}
-                        placeholder="Fechas"
-                        locale={es}
-                        selectPlaceholder="Seleccionar"
-                        enableSelect
-                      >
-                        {dateRangeOptions.map((option) => (
-                          <DateRangePickerItem
-                            key={option.value}
-                            value={option.value}
-                            from={option.from}
-                            to={option.to}
-                          >
-                            {option.text}
-                          </DateRangePickerItem>
-                        ))}
-                      </DateRangePicker>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button variant="secondary" size="sm" onClick={clearFilters}>
-                      <Filter size={14} />
-                      Limpiar
-                    </Button>
-                    <ExportDropdown
-                      onExport={handleExport}
-                      loading={exporting}
-                      loadingFormat={exporting ? exportFormat : null}
-                      totalRecords={data?.total}
-                      hasFilters={hasActiveFilters}
-                    />
-                  </div>
-                </Flex>
-              </Card>
-
-              {/* Table */}
-              <Card>
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableHeaderCell>Cliente</TableHeaderCell>
-                      <TableHeaderCell>Fecha</TableHeaderCell>
-                      <TableHeaderCell>Estado</TableHeaderCell>
-                      <TableHeaderCell>Resultado</TableHeaderCell>
-                      <TableHeaderCell>Cliente Conforme</TableHeaderCell>
-                      <TableHeaderCell>Zona</TableHeaderCell>
-                      <TableHeaderCell>Inspector</TableHeaderCell>
-                      <TableHeaderCell>Formulario</TableHeaderCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {data?.items.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell className="font-medium">
-                          {item.link_formulario ? (
-                            <a
-                              href={item.link_formulario}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-oca-blue hover:text-oca-blue-dark hover:underline transition-colors"
-                              title="Ver formulario"
-                            >
-                              {item.cliente}
-                            </a>
-                          ) : (
-                            item.cliente
-                          )}
-                        </TableCell>
-                        <TableCell className="text-gray-500">{item.fecha_inspeccion}</TableCell>
-                        <TableCell>{getStatusBadge(item.estado_efectividad)}</TableCell>
-                        <TableCell>{getResultadoBadge(item.resultado_inspeccion)}</TableCell>
-                        <TableCell>
-                          {item.cliente_conforme?.toUpperCase() === 'SI' ? (
-                            <span className="text-emerald-600 text-sm">Si</span>
-                          ) : item.cliente_conforme?.toUpperCase() === 'NO' ? (
-                            <span className="text-red-600 text-sm">No</span>
-                          ) : (
-                            <span className="text-gray-400 text-sm">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-gray-500">{item.zona}</TableCell>
-                        <TableCell className="text-gray-500 truncate max-w-[150px]">{item.inspector}</TableCell>
-                        <TableCell>
-                          {item.link_formulario ? (
-                            <a
-                              href={item.link_formulario}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-oca-blue hover:text-oca-blue-dark transition-colors"
-                              title="Ver formulario"
-                            >
-                              <ExternalLink size={14} />
-                              <span className="text-sm">Ver</span>
-                            </a>
-                          ) : (
-                            <span className="text-gray-400 text-sm">-</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-
-                {/* Pagination */}
-                <Flex justifyContent="between" className="mt-4 pt-4 border-t">
-                  <Text className="text-sm text-gray-500">
-                    {((data?.page || 1) - 1) * 10 + 1}-{Math.min((data?.page || 1) * 10, data?.total || 0)} de {formatNumber(data?.total || 0)}
-                  </Text>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={page === 1}
-                      onClick={() => setPage(p => Math.max(1, p - 1))}
-                    >
-                      Anterior
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={page >= (data?.pages || 1)}
-                      onClick={() => setPage(p => p + 1)}
-                    >
-                      Siguiente
-                    </Button>
-                  </div>
-                </Flex>
-              </Card>
+              </div>}
             </TabPanel>
           </TabPanels>
         </TabGroup>
-      </div>
+      </main>
+
+      {/* Modals */}
+      {activeModal && kpiModalData && (
+        <KpiModal
+          title={activeModal === 'total' ? 'Inspecciones por Zona' : activeModal === 'mal_ejecutado' ? 'Top Causas de Mal Ejecucion' : activeModal === 'multas' ? 'Top Contratistas con Multas' : activeModal === 'no_efectiva' ? 'No Efectiva por Zona' : ''}
+          modalKey={activeModal} data={kpiModalData} onClose={() => setActiveModal(null)}
+        />
+      )}
+      {selectedMapPoint && <MapDetailModal point={selectedMapPoint} onClose={() => setSelectedMapPoint(null)} />}
+      {showMedidoresCruzados && (
+        <MedidoresCruzadosModal
+          points={medidoresCruzadosPoints}
+          onClose={() => setShowMedidoresCruzados(false)}
+          onSelectPoint={(p) => setSelectedMapPoint(p)}
+        />
+      )}
+      {selectedContratista && (() => {
+        const ranking = contratistaData?.ranking_contratistas?.find(r => r.contratista === selectedContratista)
+        if (!ranking) return null
+        return (
+          <ContratistaModal
+            contratistaName={selectedContratista}
+            ranking={ranking}
+            malEjecutadosData={malEjecutadosData}
+            selectedBase={selectedBase}
+            mapaPoints={mapaPoints}
+            onClose={() => setSelectedContratista(null)}
+            onViewRecords={() => {
+              setSelectedContratista(null)
+              addDrillFilter('contratista', 'Contratista', selectedContratista)
+            }}
+          />
+        )
+      })()}
+      {selectedDay && selectedDayPoints.length > 0 && (
+        <DayDetailModal
+          date={selectedDay}
+          points={selectedDayPoints}
+          onClose={() => setSelectedDay(null)}
+        />
+      )}
     </div>
   )
 }

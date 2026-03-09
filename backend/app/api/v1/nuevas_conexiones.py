@@ -6,11 +6,97 @@ import io
 from ...schemas.user import User
 from ...schemas.nuevas_conexiones import PaginatedResponse, InspeccionesStats
 from ...services import data_service
+from ...services import nncc_dashboard_service
+from ...services import odis_service
 from ...utils.excel_formatter import create_formatted_excel, get_column_config_nncc
 from ..deps import get_current_user, require_editor
 
 router = APIRouter(prefix="/nuevas-conexiones", tags=["Informe NNCC"])
 
+
+# ============= Dashboard endpoints (pre-calculated stats) =============
+
+@router.get("/dashboard/overview")
+async def get_dashboard_overview(
+    base: Optional[str] = Query(None, description="Filtrar por base/periodo"),
+    current_user: User = Depends(get_current_user),
+):
+    """Page A: Executive Quality Overview - KPIs, trends, zone results, top comunas."""
+    return await nncc_dashboard_service.get_overview(base)
+
+
+@router.get("/dashboard/contratistas")
+async def get_dashboard_contratistas(
+    base: Optional[str] = Query(None, description="Filtrar por base/periodo"),
+    current_user: User = Depends(get_current_user),
+):
+    """Page B: Contractor ranking and scatter data."""
+    return await nncc_dashboard_service.get_contratistas(base)
+
+
+@router.get("/dashboard/causas")
+async def get_dashboard_causas(
+    base: Optional[str] = Query(None, description="Filtrar por base/periodo"),
+    current_user: User = Depends(get_current_user),
+):
+    """Page C: Pareto of causes, typical failures, zone breakdowns."""
+    return await nncc_dashboard_service.get_causas(base)
+
+
+@router.get("/dashboard/bases")
+async def get_dashboard_bases(
+    current_user: User = Depends(get_current_user),
+):
+    """List of bases with pre-calculated stats available."""
+    return await nncc_dashboard_service.get_available_bases()
+
+
+@router.get("/dashboard/all")
+async def get_dashboard_all(
+    base: Optional[str] = Query(None, description="Filtrar por base/periodo"),
+    current_user: User = Depends(get_current_user),
+):
+    """All pre-calculated dashboard data in a single request (except mapa)."""
+    return await nncc_dashboard_service.get_all_dashboard(base)
+
+
+@router.get("/dashboard/mapa")
+async def get_dashboard_mapa(
+    base: Optional[str] = Query(None, description="Filtrar por base/periodo"),
+    current_user: User = Depends(get_current_user),
+):
+    """Map points with coordinates for geographic visualization."""
+    return await nncc_dashboard_service.get_mapa(base)
+
+
+@router.get("/dashboard/kpi-modals")
+async def get_dashboard_kpi_modals(
+    base: Optional[str] = Query(None, description="Filtrar por base/periodo"),
+    current_user: User = Depends(get_current_user),
+):
+    """KPI drill-down modal data."""
+    return await nncc_dashboard_service.get_kpi_modals(base)
+
+
+@router.get("/dashboard/mal-ejecutados")
+async def get_dashboard_mal_ejecutados(
+    base: Optional[str] = Query(None, description="Filtrar por base/periodo"),
+    current_user: User = Depends(get_current_user),
+):
+    """Mal ejecutados detailed analysis: causes, by zona, by contratista."""
+    return await nncc_dashboard_service.get_mal_ejecutados(base)
+
+
+@router.get("/dashboard/ejecucion-stats")
+async def get_dashboard_ejecucion_stats(
+    base: Optional[str] = Query(None, description="Base/periodo"),
+    current_user: User = Depends(get_current_user),
+):
+    """Execution timing stats: days elapsed, projection, avg daily rate."""
+    return await nncc_dashboard_service.get_ejecucion_stats(base)
+
+
+# ============= Data endpoints =============
 
 @router.get("", response_model=PaginatedResponse)
 async def get_inspecciones(
@@ -20,6 +106,8 @@ async def get_inspecciones(
     estado: Optional[str] = Query(None, description="Filtrar por estado efectividad"),
     comuna: Optional[str] = Query(None, description="Filtrar por comuna"),
     base: Optional[str] = Query(None, description="Filtrar por base"),
+    contratista: Optional[str] = Query(None, description="Filtrar por contratista ENEL"),
+    resultado: Optional[str] = Query(None, description="Filtrar por resultado inspeccion"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     mes: Optional[int] = Query(None, description="Filtrar por mes (1-12)"),
@@ -38,6 +126,8 @@ async def get_inspecciones(
         estado=estado,
         comuna=comuna,
         base=base,
+        contratista=contratista,
+        resultado=resultado,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
         mes=mes,
@@ -118,6 +208,8 @@ async def export_data(
     inspector: Optional[str] = None,
     estado: Optional[str] = None,
     base: Optional[str] = None,
+    contratista: Optional[str] = Query(None, description="Filtrar por contratista ENEL"),
+    resultado: Optional[str] = Query(None, description="Filtrar por resultado inspeccion"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     mes: Optional[int] = Query(None, description="Filtrar por mes (1-12)"),
@@ -131,6 +223,8 @@ async def export_data(
         inspector=inspector,
         estado=estado,
         base=base,
+        contratista=contratista,
+        resultado=resultado,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
         mes=mes,
@@ -171,3 +265,18 @@ async def export_data(
                 "Content-Disposition": "attachment; filename=informe_nncc.csv"
             }
         )
+
+
+# ============= ODIS images =============
+
+@router.get("/imagenes/{order_id}")
+async def get_imagenes(
+    order_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    """Proxy to ODIS API to fetch inspection photos as base64."""
+    try:
+        fotos = await odis_service.obtener_imagenes(order_id)
+        return fotos
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error consultando ODIS: {str(e)}")

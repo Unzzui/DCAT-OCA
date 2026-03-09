@@ -200,6 +200,42 @@ async def update_settings_batch(settings: Dict[str, str]) -> bool:
     return True
 
 
+async def get_fechas_envio_base() -> dict[str, str]:
+    """Get all nncc_fecha_envio_base:* settings as {base_name: date_str}."""
+    prefix = "nncc_fecha_envio_base:"
+    if _use_db and db_session.AsyncSessionLocal:
+        try:
+            async with db_session.AsyncSessionLocal() as session:
+                result = await session.execute(
+                    select(SettingsModel).where(SettingsModel.key.like(f"{prefix}%"))
+                )
+                return {
+                    s.key[len(prefix):]: s.value
+                    for s in result.scalars().all()
+                    if s.value
+                }
+        except Exception:
+            pass
+    return {
+        k[len(prefix):]: v
+        for k, v in _settings_cache.items()
+        if k.startswith(prefix) and v
+    }
+
+
+async def set_fechas_envio_base(fechas: dict[str, str]) -> bool:
+    """Save fecha_envio for multiple bases. fechas = {base_name: 'YYYY-MM-DD'}."""
+    for base_name, fecha in fechas.items():
+        key = f"nncc_fecha_envio_base:{base_name}"
+        DEFAULT_SETTINGS[key] = {
+            "value": fecha,
+            "description": f"Fecha envio base {base_name}",
+            "category": "nuevas_conexiones",
+        }
+        await update_setting(key, fecha)
+    return True
+
+
 async def reset_to_defaults() -> bool:
     """Reset all settings to defaults."""
     # Always reset in-memory cache

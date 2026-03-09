@@ -6,15 +6,16 @@ import {
   X,
   ChevronRight,
   ClipboardCheck,
-  FileText,
-  Radio,
-  SearchX,
-  Scissors,
+  // FileText,
+  // Radio,
+  // SearchX,
+  // Scissors,
   GitCompare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ExportModal } from '@/components/ui/ExportModal'
 import { useAuth } from '@/contexts/AuthContext'
+import { useBrand } from '@/contexts/ThemeContext'
 
 type ReportType = 'nncc' | 'lecturas' | 'teleco' | 'calidad' | 'corte' | 'medidores_cruzados'
 
@@ -30,10 +31,11 @@ interface Report {
 const reports: Report[] = [
   { id: 'nncc', name: 'Nuevas Conexiones', shortName: 'NNCC', icon: ClipboardCheck, enabled: true, moduleId: 'nuevas-conexiones' },
   { id: 'medidores_cruzados', name: 'Medidores Cruzados', shortName: 'Med. Cruzados', icon: GitCompare, enabled: true, moduleId: 'nuevas-conexiones' },
-  { id: 'lecturas', name: 'Lecturas', shortName: 'Lecturas', icon: FileText, enabled: true, moduleId: 'lecturas' },
-  { id: 'teleco', name: 'Telecomunicaciones', shortName: 'Telecom', icon: Radio, enabled: true, moduleId: 'telecomunicaciones' },
-  { id: 'corte', name: 'Corte y Reposición', shortName: 'Corte y Repo.', icon: Scissors, enabled: true, moduleId: 'corte-reposicion' },
-  { id: 'calidad', name: 'Control de Pérdidas', shortName: 'Ctrl. Pérdidas', icon: SearchX, enabled: true, moduleId: 'control-perdidas' },
+  // Modulos desactivados temporalmente — sin updates del cliente
+  // { id: 'lecturas', name: 'Lecturas', shortName: 'Lecturas', icon: FileText, enabled: true, moduleId: 'lecturas' },
+  // { id: 'teleco', name: 'Telecomunicaciones', shortName: 'Telecom', icon: Radio, enabled: true, moduleId: 'telecomunicaciones' },
+  // { id: 'corte', name: 'Corte y Reposición', shortName: 'Corte y Repo.', icon: Scissors, enabled: true, moduleId: 'corte-reposicion' },
+  // { id: 'calidad', name: 'Control de Pérdidas', shortName: 'Ctrl. Pérdidas', icon: SearchX, enabled: true, moduleId: 'control-perdidas' },
 ]
 
 interface SidebarDownloadsProps {
@@ -44,6 +46,7 @@ export function SidebarDownloads({ isExpanded }: SidebarDownloadsProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [selectedReport, setSelectedReport] = useState<Report | null>(null)
   const { user, hasModuleAccess } = useAuth()
+  const { isEnel } = useBrand()
 
   // Filtrar reportes según módulos permitidos
   const isAdmin = user?.role === 'admin'
@@ -79,8 +82,8 @@ export function SidebarDownloads({ isExpanded }: SidebarDownloadsProps) {
           className={cn(
             'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors',
             isOpen
-              ? 'bg-white/20 text-white'
-              : 'text-white/70 hover:bg-white/10 hover:text-white',
+              ? isEnel ? 'bg-slate-100 text-slate-900' : 'bg-white/20 text-white'
+              : isEnel ? 'text-slate-500 hover:bg-slate-50 hover:text-slate-800' : 'text-white/70 hover:bg-white/10 hover:text-white',
             !isExpanded && 'justify-center px-0'
           )}
           title="Exportar Informes"

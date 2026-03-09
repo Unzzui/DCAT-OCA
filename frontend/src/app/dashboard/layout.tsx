@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { SidebarProvider, useSidebar } from '@/contexts/SidebarContext'
+import { BrandProvider } from '@/contexts/ThemeContext'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { cn } from '@/lib/utils'
 
@@ -140,11 +141,13 @@ export default function DashboardLayout({
   }
 
   return (
-    <SidebarProvider>
-      <div className="min-h-screen bg-gray-50">
-        <Sidebar />
-        <DashboardContent>{children}</DashboardContent>
-      </div>
-    </SidebarProvider>
+    <BrandProvider>
+      <SidebarProvider>
+        <div className="min-h-screen bg-gray-50">
+          <Sidebar />
+          <DashboardContent>{children}</DashboardContent>
+        </div>
+      </SidebarProvider>
+    </BrandProvider>
   )
 }

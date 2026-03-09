@@ -81,7 +81,7 @@ export function ExportDropdown({
 
       {/* Dropdown */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-100 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+        <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-slate-200/60 z-50">
           {/* Header con info */}
           {(totalRecords !== undefined || hasFilters) && (
             <div className="px-3 py-2 border-b border-gray-100 bg-gray-50/50 rounded-t-lg">
@@ -104,21 +104,21 @@ export function ExportDropdown({
               className={cn(
                 'w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors text-left',
                 success === 'excel'
-                  ? 'bg-emerald-50 text-emerald-700'
+                  ? 'bg-green-50 text-green-700'
                   : 'hover:bg-gray-50 text-gray-700',
                 loading && 'opacity-50 cursor-not-allowed'
               )}
             >
               <div className={cn(
                 'p-1.5 rounded',
-                success === 'excel' ? 'bg-emerald-100' : 'bg-emerald-50'
+                success === 'excel' ? 'bg-green-100' : 'bg-green-50'
               )}>
                 {loadingFormat === 'excel' ? (
-                  <Loader2 size={16} className="text-emerald-600 animate-spin" />
+                  <Loader2 size={16} className="text-green-600 animate-spin" />
                 ) : success === 'excel' ? (
-                  <Check size={16} className="text-emerald-600" />
+                  <Check size={16} className="text-green-600" />
                 ) : (
-                  <FileSpreadsheet size={16} className="text-emerald-600" />
+                  <FileSpreadsheet size={16} className="text-green-600" />
                 )}
               </div>
               <div className="flex-1">
@@ -136,19 +136,19 @@ export function ExportDropdown({
               className={cn(
                 'w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors text-left',
                 success === 'csv'
-                  ? 'bg-emerald-50 text-emerald-700'
+                  ? 'bg-green-50 text-green-700'
                   : 'hover:bg-gray-50 text-gray-700',
                 loading && 'opacity-50 cursor-not-allowed'
               )}
             >
               <div className={cn(
                 'p-1.5 rounded',
-                success === 'csv' ? 'bg-emerald-100' : 'bg-blue-50'
+                success === 'csv' ? 'bg-green-100' : 'bg-slate-50'
               )}>
                 {loadingFormat === 'csv' ? (
                   <Loader2 size={16} className="text-oca-blue animate-spin" />
                 ) : success === 'csv' ? (
-                  <Check size={16} className="text-emerald-600" />
+                  <Check size={16} className="text-green-600" />
                 ) : (
                   <FileText size={16} className="text-oca-blue" />
                 )}

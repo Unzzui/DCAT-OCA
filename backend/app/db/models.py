@@ -62,6 +62,24 @@ class NNCCModel(Base):
     mes = Column(Integer, nullable=True)
     anio = Column(Integer, nullable=True)
     link_formulario = Column(Text, nullable=True)
+    contratista_enel = Column(String(100), nullable=True, index=True)
+    categoria_mal_ejecutado = Column(Text, nullable=True)
+    latitud = Column(Float, nullable=True)
+    longitud = Column(Float, nullable=True)
+
+
+class NNCCDashboardStats(Base):
+    __tablename__ = "nncc_dashboard_stats"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    stat_key = Column(String(100), nullable=False)
+    base_periodo = Column(String(100), nullable=True)
+    data = Column(JSON, nullable=False)
+    calculated_at = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("idx_nncc_stats_lookup", "stat_key", "base_periodo", unique=True),
+    )
 
 
 class MedidoresCruzadosModel(Base):
