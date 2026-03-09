@@ -23,7 +23,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   const { isNormal, isCollapsed, isReportMode, setNormal } = useSidebar()
   const [showHint, setShowHint] = useState(false)
 
-  // Mostrar hint por 2 segundos al entrar en modo informe
+  // Mostrar hint por 2 segundos al entrar en modo presentacion
   useEffect(() => {
     if (isReportMode) {
       setShowHint(true)
@@ -47,7 +47,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
         {children}
       </main>
 
-      {/* Indicador modo informe - aparece 2 segundos */}
+      {/* Indicador modo presentacion - aparece 2 segundos */}
       {isReportMode && showHint && (
         <div
           className="fixed top-4 right-4 z-50 flex items-center gap-2 rounded-lg bg-black/70 px-4 py-2.5 text-sm text-white shadow-lg backdrop-blur-sm animate-fade-in"

@@ -145,14 +145,14 @@ function SlideCover({ selectedBase, lastInspectionDate }: { selectedBase: string
   return (
     <Slide className="items-center justify-center text-center">
       <Image
-        src={isEnel ? '/logo-enel.png' : '/logo_horizontal.svg'}
+        src={isEnel ? '/logo-enel.png' : '/logoOcaHorizontal.svg'}
         alt="Logo"
         width={180}
         height={60}
         className="h-14 w-auto mb-10 opacity-80"
       />
       <h1 className="text-4xl font-bold text-slate-800 tracking-tight">
-        Informe Nuevas Conexiones
+        Presentacion Nuevas Conexiones
       </h1>
       <p className="text-lg text-slate-400 mt-3 font-light">
         Resultados de Inspeccion y Calidad de Ejecucion

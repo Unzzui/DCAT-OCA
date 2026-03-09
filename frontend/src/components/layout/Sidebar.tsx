@@ -69,7 +69,7 @@ export function Sidebar() {
   const { isEnel } = useBrand()
   const [expandedItems, setExpandedItems] = useState<string[]>(['Nuevas Conexiones', 'Lecturas'])
 
-  // En modo informe no mostrar sidebar
+  // En modo presentacion no mostrar sidebar
   if (isReportMode) {
     return null
   }
@@ -271,7 +271,7 @@ export function Sidebar() {
           {/* Exportar */}
           <SidebarDownloads isExpanded={isExpanded} />
 
-          {/* Modo Informe */}
+          {/* Modo Presentacion */}
           <button
             onClick={setReportMode}
             className={cn(
@@ -279,10 +279,10 @@ export function Sidebar() {
               t.inactive,
               !isExpanded && 'justify-center px-0'
             )}
-            title="Modo Informe (Esc para salir)"
+            title="Modo Presentacion (Esc para salir)"
           >
             <Presentation size={18} className="shrink-0" />
-            {isExpanded && <span>Modo Informe</span>}
+            {isExpanded && <span>Modo Presentacion</span>}
           </button>
 
         </div>

@@ -28,7 +28,7 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
     setMode(current => current === 'normal' ? 'collapsed' : 'normal')
   }, [])
 
-  // Escape para salir del modo informe
+  // Escape para salir del modo presentacion
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && mode === 'report') {
