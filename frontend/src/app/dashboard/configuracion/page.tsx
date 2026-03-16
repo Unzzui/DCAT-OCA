@@ -50,7 +50,7 @@ export default function ConfiguracionPage() {
   const fetchSettings = useCallback(async () => {
     try {
       const data = await api.get<Setting[]>('/api/v1/settings')
-      setSettings(data)
+      setSettings(Array.isArray(data) ? data : [])
       const initial: Record<string, string> = {}
       data.forEach(s => { initial[s.key] = s.value })
       setEditedValues(initial)
@@ -65,12 +65,13 @@ export default function ConfiguracionPage() {
 
   const fetchFechasEnvio = useCallback(async () => {
     try {
-      const [fechas, bases] = await Promise.all([
+      const [fechas, basesResp] = await Promise.all([
         api.get<Record<string, string>>('/api/v1/settings/fechas-envio-base'),
-        api.get<string[]>('/api/v1/nuevas-conexiones/dashboard/bases'),
+        api.get<{ bases: string[] }>('/api/v1/nuevas-conexiones/dashboard/bases'),
       ])
-      setFechasEnvio(fechas)
-      setEditedFechas(fechas)
+      const bases = Array.isArray(basesResp) ? basesResp : (basesResp?.bases ?? [])
+      setFechasEnvio(fechas && typeof fechas === 'object' ? fechas : {})
+      setEditedFechas(fechas && typeof fechas === 'object' ? fechas : {})
       setNnccBases(bases)
     } catch {
       console.error('Error fetching fechas envio')

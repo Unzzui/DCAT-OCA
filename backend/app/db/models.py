@@ -67,6 +67,7 @@ class NNCCModel(Base):
     categoria_no_efectivo = Column(Text, nullable=True)
     latitud = Column(Float, nullable=True)
     longitud = Column(Float, nullable=True)
+    obligatorio_opcional = Column(String(20), nullable=True)
 
 
 class NNCCDashboardStats(Base):

@@ -161,6 +161,8 @@ def truncate_and_insert(engine, table: str, df: pd.DataFrame, chunksize: int = 5
         ensure_column_exists(engine, table, "link_formulario", "TEXT")
     if table == "nncc" and "categoria_no_efectivo" in df.columns:
         ensure_column_exists(engine, table, "categoria_no_efectivo", "TEXT")
+    if table == "nncc" and "obligatorio_opcional" in df.columns:
+        ensure_column_exists(engine, table, "obligatorio_opcional", "VARCHAR(20)")
 
     with engine.connect() as conn:
         conn.execute(text(f"TRUNCATE TABLE {table}"))
@@ -260,6 +262,7 @@ def process_nncc(engine) -> list[str]:
         "CATEGORIA_NO_EFECTIVO": "categoria_no_efectivo",
         "LATITUD": "latitud",
         "LONGITUD": "longitud",
+        "OBLIGATORIO/OPCIONAL": "obligatorio_opcional",
     }
     rename_dict = {k: v for k, v in column_mapping.items() if k in df.columns}
     df = df.rename(columns=rename_dict)
@@ -282,7 +285,7 @@ def process_nncc(engine) -> list[str]:
         'estado_contratista', 'resultado_normalizacion', 'cumple_norma_cc',
         'cliente_conforme', 'estado_empalme', 'tipo_inspeccion', 'voltaje',
         'mes', 'anio', 'link_formulario', 'contratista_enel', 'categoria_mal_ejecutado',
-        'categoria_no_efectivo', 'latitud', 'longitud',
+        'categoria_no_efectivo', 'latitud', 'longitud', 'obligatorio_opcional',
     ]
     df = df[[c for c in known_cols if c in df.columns]]
 

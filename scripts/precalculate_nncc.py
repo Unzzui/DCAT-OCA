@@ -125,7 +125,9 @@ def _get_inspected(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def calc_overview_kpis(df: pd.DataFrame) -> dict:
-    total_asignadas = len(df)
+    # Asignadas = solo OBLIGATORIO
+    obligatorias = df[df["obligatorio_opcional"].fillna("").str.upper().str.strip() == "OBLIGATORIO"]
+    total_asignadas = len(obligatorias)
     inspeccionadas = _get_inspected(df)
     total_inspeccionadas = len(inspeccionadas)
     # All counts must be from inspeccionadas (not full df) to avoid numerator > denominator
@@ -212,6 +214,7 @@ def calc_resultado_por_zona(df: pd.DataFrame) -> list:
     results = []
     for zona, grp in df.groupby("zona"):
         inspected = grp[grp["estado_efectividad"].notna() & (grp["estado_efectividad"].str.strip() != "")]
+        obligatorias = grp[grp["obligatorio_opcional"].fillna("").str.upper().str.strip() == "OBLIGATORIO"]
         efectivas = int((inspected["estado_efectividad"] == "EFECTIVA").sum())
         bien = int((inspected["resultado_inspeccion"] == "TRABAJO BIEN EJECUTADO").sum())
         mal = int((inspected["resultado_inspeccion"] == "TRABAJO MAL EJECUTADO").sum())
@@ -222,7 +225,7 @@ def calc_resultado_por_zona(df: pd.DataFrame) -> list:
             "mal": mal,
             "pendiente": no_efec,
             "efectivas": efectivas,
-            "total": int(len(grp)),
+            "total": int(len(obligatorias)),
             "total_inspecciones": int(len(inspected)),
         })
     return sorted(results, key=lambda x: x["total"], reverse=True)
@@ -591,8 +594,10 @@ def calc_tendencia_efectividad(df: pd.DataFrame) -> list:
 
 
 def calc_kpi_modals(df: pd.DataFrame) -> dict:
+    # Zona breakdown based on obligatorias only
+    obligatorias = df[df["obligatorio_opcional"].fillna("").str.upper().str.strip() == "OBLIGATORIO"]
     zona_breakdown = []
-    for zona, grp in df.groupby("zona"):
+    for zona, grp in obligatorias.groupby("zona"):
         zona_breakdown.append({"zona": str(zona), "total": int(len(grp))})
     zona_breakdown.sort(key=lambda x: x["total"], reverse=True)
 
