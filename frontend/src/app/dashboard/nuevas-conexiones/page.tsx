@@ -970,6 +970,7 @@ export default function NuevasConexionesPage() {
     return {
       ...overviewData.kpis,
       total_asignadas: total,
+      total_asignadas_total: zonaRow.total_total ?? total,
       total_inspecciones: totalInsp,
       total_efectivas: efectivas,
       num_mal_ejecutado: mal,
@@ -1113,7 +1114,7 @@ export default function NuevasConexionesPage() {
 
                   {/* ── Fila 2: Operational + Hallazgos ── */}
                   <div className="bg-white rounded-lg border border-slate-200/60 shadow-sm overflow-hidden grid grid-cols-2 md:grid-cols-4 divide-x divide-slate-100">
-                    <FeatureKpi label="Asignadas" value={kpis?.total_asignadas ?? 0} subtitle={`Base: ${selectedBase || 'Todas'}`} onClick={() => setActiveModal('total')} />
+                    <FeatureKpi label="Asignadas" value={kpis?.total_asignadas ?? 0} subtitle={`${formatNumber(kpis?.total_asignadas_total ?? 0)} totales · Obligatorias`} onClick={() => setActiveModal('total')} />
                     <KpiCard label="Inspeccionadas" value={kpis?.total_inspecciones ?? 0} unit={kpis ? pct(kpis.pct_avance) : ''} sparkData={sparklines.total} />
                     {/* Avance + Ejecucion stats */}
                     <div className="px-4 py-3">

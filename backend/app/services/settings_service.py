@@ -2,10 +2,12 @@
 Settings service for application configuration.
 """
 
-import json
+import logging
 from typing import Dict, Any, Optional, List
 from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from ..db.models import SettingsModel
 from ..db import session as db_session
@@ -100,9 +102,8 @@ async def get_all_settings() -> List[Dict[str, Any]]:
                             "category": default["category"],
                         })
                 return all_settings
-        except Exception:
-            # Table doesn't exist or other DB error - return defaults
-            pass
+        except Exception as e:
+            logger.warning("Failed to read settings from DB: %s", e)
 
     # In-memory mode or DB error fallback
     return [
@@ -127,9 +128,8 @@ async def get_setting(key: str) -> Optional[str]:
                 row = result.scalar_one_or_none()
                 if row is not None:
                     return row
-        except Exception:
-            # Table doesn't exist - fall through to defaults
-            pass
+        except Exception as e:
+            logger.warning("Failed to read setting '%s' from DB: %s", key, e)
     else:
         if key in _settings_cache:
             return _settings_cache[key]
@@ -186,9 +186,8 @@ async def update_setting(key: str, value: str) -> bool:
                     session.add(new_setting)
 
                 await session.commit()
-        except Exception:
-            # Table doesn't exist - settings saved in memory only
-            pass
+        except Exception as e:
+            logger.warning("Failed to save setting '%s' to DB: %s", key, e)
 
     return True
 
@@ -214,8 +213,8 @@ async def get_fechas_envio_base() -> dict[str, str]:
                     for s in result.scalars().all()
                     if s.value
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed settings DB operation: %s", e)
     return {
         k[len(prefix):]: v
         for k, v in _settings_cache.items()
@@ -246,8 +245,7 @@ async def reset_to_defaults() -> bool:
             async with db_session.AsyncSessionLocal() as session:
                 await session.execute(delete(SettingsModel))
                 await session.commit()
-        except Exception:
-            # Table doesn't exist - that's fine, memory is reset
-            pass
+        except Exception as e:
+            logger.warning("Failed to reset settings in DB: %s", e)
 
     return True

@@ -175,7 +175,7 @@ function SlideCover({ selectedBase, selectedZona, lastInspectionDate }: { select
 
 function SlideKpis({ kpis }: { kpis: KpisData }) {
   const items = [
-    { label: 'Asignadas', value: formatNumber(kpis.total_asignadas), color: 'text-slate-800' },
+    { label: 'Asignadas', value: formatNumber(kpis.total_asignadas), sub: `${formatNumber(kpis.total_asignadas_total || kpis.total_asignadas)} totales`, color: 'text-slate-800' },
     { label: 'Inspeccionadas', value: formatNumber(kpis.total_inspecciones), sub: pct(kpis.pct_avance) + ' avance', color: 'text-slate-800' },
     { label: 'Mal Ejecutados', value: formatNumber(kpis.num_mal_ejecutado), sub: pct(kpis.pct_mal_ejecutado), color: 'text-red-600' },
     { label: 'Multas', value: formatNumber(kpis.num_multas_si), color: 'text-amber-600' },

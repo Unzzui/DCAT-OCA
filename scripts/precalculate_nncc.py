@@ -125,9 +125,10 @@ def _get_inspected(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def calc_overview_kpis(df: pd.DataFrame) -> dict:
-    # Asignadas = solo OBLIGATORIO
+    # Asignadas = solo OBLIGATORIO; total incluye opcionales
     obligatorias = df[df["obligatorio_opcional"].fillna("").str.upper().str.strip() == "OBLIGATORIO"]
     total_asignadas = len(obligatorias)
+    total_asignadas_total = len(df)
     inspeccionadas = _get_inspected(df)
     total_inspeccionadas = len(inspeccionadas)
     # All counts must be from inspeccionadas (not full df) to avoid numerator > denominator
@@ -154,6 +155,7 @@ def calc_overview_kpis(df: pd.DataFrame) -> dict:
 
     return {
         "total_asignadas": int(total_asignadas),
+        "total_asignadas_total": int(total_asignadas_total),
         "total_inspecciones": int(total_inspeccionadas),
         "total_efectivas": int(efectivas),
         "pct_mal_ejecutado": round(mal_ejecutado / efectivas * 100, 2) if efectivas > 0 else 0,
@@ -226,6 +228,7 @@ def calc_resultado_por_zona(df: pd.DataFrame) -> list:
             "pendiente": no_efec,
             "efectivas": efectivas,
             "total": int(len(obligatorias)),
+            "total_total": int(len(grp)),
             "total_inspecciones": int(len(inspected)),
         })
     return sorted(results, key=lambda x: x["total"], reverse=True)

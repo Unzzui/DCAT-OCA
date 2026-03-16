@@ -9,6 +9,7 @@ export interface KPI {
 export interface OverviewData {
   kpis: {
     total_asignadas: number
+    total_asignadas_total: number
     total_inspecciones: number
     total_efectivas: number
     pct_mal_ejecutado: number
@@ -39,6 +40,7 @@ export interface OverviewData {
     pendiente: number
     efectivas: number
     total: number
+    total_total: number
     total_inspecciones: number
   }>
   top_comunas_problemas: Array<{

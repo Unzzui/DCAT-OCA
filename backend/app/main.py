@@ -53,6 +53,36 @@ async def _run_migrations():
                 """))
                 await session.commit()
                 print("Database schema is up to date", flush=True)
+
+            # Ensure settings table exists
+            settings_exists = await session.execute(text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables
+                    WHERE table_name = 'settings'
+                )
+            """))
+            if not settings_exists.scalar():
+                print("Creating settings table...", flush=True)
+                await session.execute(text("""
+                    CREATE TABLE settings (
+                        id SERIAL PRIMARY KEY,
+                        key VARCHAR(100) NOT NULL UNIQUE,
+                        value TEXT,
+                        description VARCHAR(255),
+                        category VARCHAR(50),
+                        updated_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """))
+                await session.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_settings_key ON settings (key)"
+                ))
+                await session.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_settings_category ON settings (category)"
+                ))
+                await session.commit()
+                print("Migration complete: settings table created", flush=True)
+            else:
+                print("Settings table exists", flush=True)
     except Exception as e:
         print(f"Migration check failed: {e}", flush=True)
 
