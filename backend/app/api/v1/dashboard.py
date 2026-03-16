@@ -18,13 +18,22 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 @cached(ttl_seconds=300)
 async def _get_last_update(table: str, date_col: str = "fecha_inspeccion") -> str:
-    """Get the most recent date from a table as ultima_actualizacion."""
+    """Get the most recent pipeline update timestamp.
+
+    For tables with pre-calculated stats (nncc), uses calculated_at from
+    nncc_dashboard_stats. For other tables, falls back to MAX(date_col).
+    """
     try:
-        result = await execute_scalar(
-            f"SELECT MAX({date_col})::text FROM {table}"
-        )
+        if table == "nncc":
+            result = await execute_scalar(
+                "SELECT MAX(calculated_at)::text FROM nncc_dashboard_stats"
+            )
+        else:
+            result = await execute_scalar(
+                f"SELECT MAX({date_col})::text FROM {table}"
+            )
         if result:
-            return result[:16]  # YYYY-MM-DD HH:MM
+            return result[:10]  # YYYY-MM-DD
     except Exception:
         pass
     return None

@@ -9,9 +9,10 @@ import { cn } from '@/lib/utils'
 interface HeaderProps {
   title: string
   subtitle?: string
+  lastUpdate?: string | null
 }
 
-export function Header({ title, subtitle }: HeaderProps) {
+export function Header({ title, subtitle, lastUpdate }: HeaderProps) {
   const { user, logout } = useAuth()
   const { brand, isEnel, toggleBrand } = useBrand()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -32,7 +33,14 @@ export function Header({ title, subtitle }: HeaderProps) {
       <div className="flex h-14 items-center justify-between px-6">
         <div>
           <h1 className="text-lg font-semibold text-gray-900 leading-tight">{title}</h1>
-          {subtitle && <p className="text-[11px] text-gray-500 -mt-0.5">{subtitle}</p>}
+          <div className="flex items-center gap-3 -mt-0.5">
+            {subtitle && <p className="text-[11px] text-gray-500">{subtitle}</p>}
+            {lastUpdate && (
+              <p className="text-[10px] text-slate-400">
+                Actualizado: {lastUpdate}
+              </p>
+            )}
+          </div>
         </div>
 
         {user && (

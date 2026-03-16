@@ -396,6 +396,7 @@ def calc_mapa_puntos(df: pd.DataFrame) -> list:
             "tipo_trabajo": _str(row, "tipo_inspeccion"),
             "multa": _str(row, "multa"),
             "causa": _str(row, "categoria_mal_ejecutado"),
+            "categoria_no_efectivo": _str(row, "categoria_no_efectivo"),
             # Additional inspection detail fields
             "direccion": _str(row, "direccion"),
             "n_medidor": _str(row, "n_medidor"),

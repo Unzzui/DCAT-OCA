@@ -110,6 +110,7 @@ export interface DetailItem {
   tipo_inspeccion?: string
   observaciones_multa?: string
   categoria_mal_ejecutado?: string
+  categoria_no_efectivo?: string
   link_formulario?: string
   cliente?: string
 }
@@ -160,10 +161,33 @@ export interface TendenciaEfectividad {
   tasa_efectividad: number
 }
 
+export interface NoEfectivosCategoria {
+  categoria: string
+  cantidad: number
+  pct: number
+  acumulado_pct: number
+}
+
+export interface NoEfectivosData {
+  total_no_efectivas: number
+  categorias: NoEfectivosCategoria[]
+  por_zona: Array<{
+    zona: string
+    total_no_efectivas: number
+    categorias: Array<{ categoria: string; cantidad: number }>
+  }>
+  por_contratista: Array<{
+    contratista: string
+    total_no_efectivas: number
+    categorias: Array<{ categoria: string; cantidad: number }>
+  }>
+}
+
 export interface OcaData {
   ranking_inspectores: InspectorRanking[]
   efectividad_por_zona: EfectividadZona[]
   tendencia_efectividad: TendenciaEfectividad[]
+  no_efectivos_analysis?: NoEfectivosData
 }
 
 export interface MalEjecutadosData {

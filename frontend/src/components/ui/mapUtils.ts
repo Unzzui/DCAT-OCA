@@ -25,6 +25,7 @@ export interface MapPoint {
   cliente_conforme?: string
   resultado_normalizacion?: string
   estado_contratista?: string
+  categoria_no_efectivo?: string
 }
 
 export type MarkerCategory = 'bien' | 'mal' | 'no_efectiva' | 'pendiente'

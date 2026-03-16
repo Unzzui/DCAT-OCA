@@ -6,7 +6,7 @@ All metrics are pre-computed by scripts/precalculate_nncc.py and stored in nncc_
 from datetime import date, datetime, timedelta
 from math import ceil
 
-from .db_queries import execute_query
+from .db_queries import execute_query, execute_scalar
 from .cache import cached
 from . import settings_service
 
@@ -135,6 +135,7 @@ async def get_all_dashboard(base: str = None) -> dict:
             "ranking_inspectores": result.get("ranking_inspectores", []),
             "efectividad_por_zona": result.get("efectividad_por_zona", []),
             "tendencia_efectividad": result.get("tendencia_efectividad", []),
+            "no_efectivos_analysis": result.get("no_efectivos_analysis", {}),
         },
     }
 
@@ -148,6 +149,17 @@ async def get_available_bases() -> list:
         "ORDER BY base_periodo"
     )
     return [r["base_periodo"] for r in rows]
+
+
+@cached(ttl_seconds=300)
+async def get_ultima_actualizacion() -> str | None:
+    """Return the most recent calculated_at timestamp from dashboard stats."""
+    result = await execute_scalar(
+        "SELECT MAX(calculated_at)::text FROM nncc_dashboard_stats"
+    )
+    if result:
+        return result[:10]  # YYYY-MM-DD
+    return None
 
 
 def _count_business_days(start: date, end: date) -> int:

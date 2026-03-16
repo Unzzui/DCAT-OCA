@@ -176,7 +176,7 @@ async def get_filtered_data(
                inspector, estado_contratista, resultado_normalizacion,
                cumple_norma_cc, cliente_conforme, estado_empalme,
                tipo_inspeccion, voltaje, mes, anio, link_formulario,
-               contratista_enel, categoria_mal_ejecutado
+               contratista_enel, categoria_mal_ejecutado, categoria_no_efectivo
         FROM nncc WHERE {where}
         ORDER BY {sort_by} {order_dir} NULLS LAST
         LIMIT :limit OFFSET :offset""",

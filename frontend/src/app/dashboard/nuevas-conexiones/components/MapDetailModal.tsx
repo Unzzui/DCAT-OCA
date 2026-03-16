@@ -354,6 +354,18 @@ export function MapDetailModal({ point, onClose }: { point: MapPoint; onClose: (
             </div>
           )}
 
+          {/* No efectiva — causa */}
+          {resultadoType === 'no_efectiva' && isValid(point.categoria_no_efectivo) && (
+            <div className="border-t border-slate-200 pt-3">
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                Causa No Efectiva
+              </p>
+              <div className="bg-slate-50 rounded-lg px-3 py-2">
+                <span className="text-[12px] text-slate-700 font-medium leading-snug">{point.categoria_no_efectivo!.replace(/_/g, ' ')}</span>
+              </div>
+            </div>
+          )}
+
           {/* Photos from ODIS */}
           {orderId && <PhotoGallery orderId={orderId} />}
         </div>

@@ -49,6 +49,7 @@ import type {
   KpiModalData,
   MalEjecutadosData,
   OcaData,
+  NoEfectivosData,
   EjecucionStats,
 } from './types'
 import { pct, resultadoBadgeColor } from './helpers'
@@ -126,6 +127,7 @@ function detailToMapPoint(item: DetailItem): MapPoint {
     tipo_trabajo: item.tipo_inspeccion || item.tipo_trabajo,
     multa: item.multa,
     causa: item.categoria_mal_ejecutado || item.causa,
+    categoria_no_efectivo: item.categoria_no_efectivo,
     direccion: item.direccion,
     n_medidor: item.n_medidor,
     estado_efectividad: item.estado_efectividad,
@@ -142,6 +144,7 @@ export default function NuevasConexionesPage() {
   const [selectedBase, setSelectedBase] = useState<string>('')
   const [bases, setBases] = useState<string[]>([])
   const [basesLoading, setBasesLoading] = useState(true)
+  const [lastUpdate, setLastUpdate] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState(0)
   const [selectedZona, setSelectedZona] = useState<string>('')
   const [zonas, setZonas] = useState<string[]>([])
@@ -189,10 +192,15 @@ export default function NuevasConexionesPage() {
     async function loadInitial() {
       setBasesLoading(true)
       try {
-        const [basesData, zonasData] = await Promise.all([
-          api.get<string[]>('/api/v1/nuevas-conexiones/dashboard/bases'),
+        const [basesResponse, zonasData] = await Promise.all([
+          api.get<{ bases: string[]; ultima_actualizacion: string | null } | string[]>('/api/v1/nuevas-conexiones/dashboard/bases'),
           api.get<string[]>('/api/v1/nuevas-conexiones/zonas'),
         ])
+        // Support both old (string[]) and new ({ bases, ultima_actualizacion }) response format
+        const basesData = Array.isArray(basesResponse) ? basesResponse : basesResponse.bases
+        if (!Array.isArray(basesResponse) && basesResponse.ultima_actualizacion) {
+          setLastUpdate(basesResponse.ultima_actualizacion)
+        }
         setBases(basesData)
         setZonas(zonasData)
         if (basesData.length > 0) setSelectedBase(basesData[basesData.length - 1])
@@ -897,6 +905,49 @@ export default function NuevasConexionesPage() {
     }
   }, [zonaOcaData])
 
+  // ─── No Efectivos Pareto chart ───────────────────────────────────────────
+  const noEfectivosData = ocaData?.no_efectivos_analysis
+
+  const noEfectivosOption = useMemo(() => {
+    const cats = noEfectivosData?.categorias
+    if (!cats?.length) return {}
+    return {
+      tooltip: { ...TOOLTIP_STYLE, trigger: 'axis' as const, axisPointer: { type: 'cross' as const } },
+      legend: { ...LEGEND_STYLE, data: ['Cantidad', '% Acumulado'] },
+      grid: { ...GRID_STYLE, left: 12 },
+      xAxis: { type: 'category' as const, data: cats.map(c => c.categoria.replace(/_/g, ' ')), ...CATEGORY_AXIS, axisLabel: { rotate: 35, fontSize: 9, color: '#64748b', interval: 0 } },
+      yAxis: [
+        { type: 'value' as const, ...AXIS_STYLE },
+        { type: 'value' as const, ...AXIS_STYLE, min: 0, max: 100, axisLabel: { ...AXIS_STYLE.axisLabel, formatter: '{value}%' } },
+      ],
+      series: [
+        { name: 'Cantidad', type: 'bar' as const, data: cats.map(c => c.cantidad), itemStyle: { color: CHART_COLORS.primary, borderRadius: BAR_RADIUS }, barMaxWidth: 28 },
+        {
+          name: '% Acumulado', type: 'line' as const, yAxisIndex: 1, data: cats.map(c => c.acumulado_pct),
+          smooth: true, lineStyle: { color: CHART_COLORS.warning, width: 2 }, itemStyle: { color: CHART_COLORS.warning }, showSymbol: false,
+          markLine: { data: [{ yAxis: 80, lineStyle: { type: 'dashed' as const, color: '#cbd5e1' } }], label: { formatter: '80%', fontSize: 10, color: '#94a3b8' } },
+        },
+      ],
+    }
+  }, [noEfectivosData])
+
+  const noEfectivosPorContratistaOption = useMemo(() => {
+    const d = noEfectivosData?.por_contratista
+    if (!d?.length) return {}
+    const top = d.slice(0, 8)
+    return {
+      tooltip: { ...TOOLTIP_STYLE, trigger: 'axis' as const },
+      grid: { left: 8, right: 20, bottom: 8, top: 8, containLabel: true },
+      xAxis: { type: 'value' as const, ...AXIS_STYLE },
+      yAxis: { type: 'category' as const, data: top.map(c => c.contratista), ...CATEGORY_AXIS, axisLabel: { fontSize: 10, color: '#64748b', width: 120, overflow: 'truncate' as const } },
+      series: [{
+        type: 'bar' as const, barMaxWidth: 18,
+        data: top.map(c => ({ value: c.total_no_efectivas, itemStyle: { color: CHART_COLORS.primary, borderRadius: BAR_RADIUS_H } })),
+        label: { show: true, position: 'right' as const, fontSize: 10, color: '#64748b' },
+      }],
+    }
+  }, [noEfectivosData])
+
   // Filter mapa points by zona + inspection status + category
   const filteredMapaPoints = useMemo(() => {
     let pts = mapaPoints.filter(p => p.link_formulario && p.link_formulario !== '' && p.link_formulario !== 'None' && p.link_formulario !== 'nan')
@@ -969,7 +1020,7 @@ export default function NuevasConexionesPage() {
 
   return (
     <div className="flex flex-col min-h-screen bg-slate-50/80">
-      <Header title="Nuevas Conexiones (NNCC)" subtitle="Dashboard de inspecciones y resultados de ejecucion" />
+      <Header title="Nuevas Conexiones (NNCC)" subtitle="Dashboard de inspecciones y resultados de ejecucion" lastUpdate={lastUpdate} />
 
       <main className="flex-1 px-4 py-3 space-y-3 max-w-[1600px] mx-auto w-full">
         {/* ── Global filter bar ── */}
@@ -1622,6 +1673,20 @@ export default function NuevasConexionesPage() {
                     )
                   })()}
 
+                  {/* ── Causas No Efectivas — Pareto + Por Contratista ── */}
+                  {noEfectivosData?.categorias?.length ? (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                      <ChartCard title="Causas No Efectivas" sub="Linea punteada: 80%" className="lg:col-span-2">
+                        <EChart option={noEfectivosOption} height="260px" />
+                      </ChartCard>
+                      <ChartCard title="Por Contratista" sub="Top no efectivas">
+                        {noEfectivosData.por_contratista?.length ? (
+                          <EChart option={noEfectivosPorContratistaOption} height="260px" />
+                        ) : <EmptyState text="Sin datos" />}
+                      </ChartCard>
+                    </div>
+                  ) : null}
+
                   {/* ── Fila 3: Charts — Tendencia 60% + Efectividad Zona 40% ── */}
                   <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
                     <div className="bg-white rounded-lg border border-slate-200/60 shadow-sm px-4 py-3 lg:col-span-3">
@@ -1783,7 +1848,13 @@ export default function NuevasConexionesPage() {
                           {detailData?.items?.map((item) => {
                             const vta = (item.vta || '').toString().replace(/\.0$/, '')
                             const resultado = item.resultado_inspeccion || item.resultado || ''
-                            const causa = item.categoria_mal_ejecutado || item.causa || ''
+                            const isMalEj = resultado.toUpperCase().includes('MAL')
+                            const isNoEfectiva = (item.estado_efectividad || '').toUpperCase().includes('NO EFECTIVA') || resultado.toUpperCase() === 'OTROS'
+                            const causa = isMalEj
+                              ? (item.categoria_mal_ejecutado || item.causa || '')
+                              : isNoEfectiva
+                                ? (item.categoria_no_efectivo || '')
+                                : ''
                             const multa = item.multa || ''
                             const contratista = item.contratista_enel || item.contratista || ''
                             const hasLink = item.link_formulario && item.link_formulario !== '' && item.link_formulario !== 'None'

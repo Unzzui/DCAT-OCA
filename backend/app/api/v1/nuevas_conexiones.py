@@ -47,8 +47,13 @@ async def get_dashboard_causas(
 async def get_dashboard_bases(
     current_user: User = Depends(get_current_user),
 ):
-    """List of bases with pre-calculated stats available."""
-    return await nncc_dashboard_service.get_available_bases()
+    """List of bases with pre-calculated stats available, plus last update timestamp."""
+    bases = await nncc_dashboard_service.get_available_bases()
+    ultima_actualizacion = await nncc_dashboard_service.get_ultima_actualizacion()
+    return {
+        "bases": bases,
+        "ultima_actualizacion": ultima_actualizacion,
+    }
 
 
 @router.get("/dashboard/all")
