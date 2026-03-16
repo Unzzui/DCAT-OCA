@@ -94,6 +94,12 @@ async def get_oca(base: str = None) -> dict:
 
 
 @cached(ttl_seconds=300)
+async def get_no_efectivos_analysis(base: str = None) -> dict:
+    """Get non-effective inspections analysis by category."""
+    return await _get_stat("no_efectivos_analysis", base)
+
+
+@cached(ttl_seconds=300)
 async def get_all_dashboard(base: str = None) -> dict:
     """Return ALL pre-calculated dashboard data in a single query (except mapa)."""
     base_val = base or "__all__"
@@ -124,6 +130,7 @@ async def get_all_dashboard(base: str = None) -> dict:
         },
         "kpi_modals": result.get("kpi_modals", {}),
         "mal_ejecutados": result.get("mal_ejecutados_analysis", {}),
+        "no_efectivos_analysis": result.get("no_efectivos_analysis", {}),
         "oca": {
             "ranking_inspectores": result.get("ranking_inspectores", []),
             "efectividad_por_zona": result.get("efectividad_por_zona", []),
@@ -138,7 +145,6 @@ async def get_available_bases() -> list:
     rows = await execute_query(
         "SELECT DISTINCT base_periodo FROM nncc_dashboard_stats "
         "WHERE base_periodo != '__all__' "
-        "AND base_periodo LIKE '2025%' "
         "ORDER BY base_periodo"
     )
     return [r["base_periodo"] for r in rows]

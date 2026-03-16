@@ -159,6 +159,8 @@ def truncate_and_insert(engine, table: str, df: pd.DataFrame, chunksize: int = 5
     # Ensure any new columns exist before inserting
     if table == "nncc" and "link_formulario" in df.columns:
         ensure_column_exists(engine, table, "link_formulario", "TEXT")
+    if table == "nncc" and "categoria_no_efectivo" in df.columns:
+        ensure_column_exists(engine, table, "categoria_no_efectivo", "TEXT")
 
     with engine.connect() as conn:
         conn.execute(text(f"TRUNCATE TABLE {table}"))
@@ -255,6 +257,7 @@ def process_nncc(engine) -> list[str]:
         "TIPO INSPECCIÓN": "tipo_inspeccion", "VOLTAJE": "voltaje",
         "CONTRATISTA_ENEL": "contratista_enel",
         "CATEGORIA_MAL_EJECUTADO": "categoria_mal_ejecutado",
+        "CATEGORIA_NO_EFECTIVO": "categoria_no_efectivo",
         "LATITUD": "latitud",
         "LONGITUD": "longitud",
     }
@@ -279,7 +282,7 @@ def process_nncc(engine) -> list[str]:
         'estado_contratista', 'resultado_normalizacion', 'cumple_norma_cc',
         'cliente_conforme', 'estado_empalme', 'tipo_inspeccion', 'voltaje',
         'mes', 'anio', 'link_formulario', 'contratista_enel', 'categoria_mal_ejecutado',
-        'latitud', 'longitud',
+        'categoria_no_efectivo', 'latitud', 'longitud',
     ]
     df = df[[c for c in known_cols if c in df.columns]]
 

@@ -60,7 +60,7 @@ def _build_where(
             for i, v in enumerate(base_vals):
                 params[f"base_{i}"] = v
     else:
-        conditions.append("base LIKE '2025%%'")
+        conditions.append("base LIKE '%EJECUTADOS'")
     if fecha_desde:
         parsed_desde = _parse_date(fecha_desde)
         if parsed_desde:

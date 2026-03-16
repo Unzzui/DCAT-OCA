@@ -633,6 +633,70 @@ def calc_kpi_modals(df: pd.DataFrame) -> dict:
     }
 
 
+def calc_no_efectivos_analysis(df: pd.DataFrame) -> dict:
+    """Analysis of non-effective inspections by category."""
+    insp = _get_inspected(df)
+    no_ef = insp[insp["estado_efectividad"] == "NO EFECTIVA"].copy()
+
+    total_no_efectivas = len(no_ef)
+    if total_no_efectivas == 0:
+        return {
+            "total_no_efectivas": 0,
+            "categorias": [],
+            "por_zona": [],
+            "por_contratista": [],
+        }
+
+    # Category breakdown
+    categorias = []
+    if "categoria_no_efectivo" in no_ef.columns:
+        cat_counts = no_ef["categoria_no_efectivo"].fillna("OTRO").value_counts()
+        acum = 0.0
+        for cat, count in cat_counts.items():
+            pct = round(count / total_no_efectivas * 100, 1)
+            acum += pct
+            categorias.append({
+                "categoria": str(cat),
+                "cantidad": int(count),
+                "pct": pct,
+                "acumulado_pct": round(acum, 1),
+            })
+
+    # By zona
+    por_zona = []
+    if "categoria_no_efectivo" in no_ef.columns:
+        for zona, grp in no_ef.groupby("zona"):
+            zona_cats = grp["categoria_no_efectivo"].fillna("OTRO").value_counts()
+            top_cats = [{"categoria": str(c), "cantidad": int(n)} for c, n in zona_cats.head(5).items()]
+            por_zona.append({
+                "zona": str(zona),
+                "total_no_efectivas": int(len(grp)),
+                "categorias": top_cats,
+            })
+        por_zona.sort(key=lambda x: x["total_no_efectivas"], reverse=True)
+
+    # By contratista
+    por_contratista = []
+    if "categoria_no_efectivo" in no_ef.columns:
+        no_ef_con = no_ef.dropna(subset=["contratista_enel"])
+        for contratista, grp in no_ef_con.groupby("contratista_enel"):
+            con_cats = grp["categoria_no_efectivo"].fillna("OTRO").value_counts()
+            top_cats = [{"categoria": str(c), "cantidad": int(n)} for c, n in con_cats.head(5).items()]
+            por_contratista.append({
+                "contratista": str(contratista),
+                "total_no_efectivas": int(len(grp)),
+                "categorias": top_cats,
+            })
+        por_contratista.sort(key=lambda x: x["total_no_efectivas"], reverse=True)
+
+    return {
+        "total_no_efectivas": int(total_no_efectivas),
+        "categorias": categorias,
+        "por_zona": por_zona,
+        "por_contratista": por_contratista,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Main execution
 # ---------------------------------------------------------------------------
@@ -645,7 +709,7 @@ def run(base_filter: str = None):
     if base_filter:
         query += " WHERE base = :base_filter"
     else:
-        query += " WHERE base LIKE '2025%%'"
+        query += " WHERE base LIKE '%EJECUTADOS'"
 
     with engine.connect() as conn:
         if base_filter:
@@ -682,6 +746,7 @@ def run(base_filter: str = None):
         "ranking_inspectores": calc_ranking_inspectores(df),
         "efectividad_por_zona": calc_efectividad_por_zona(df),
         "tendencia_efectividad": calc_tendencia_efectividad(df),
+        "no_efectivos_analysis": calc_no_efectivos_analysis(df),
     }
 
     # Store in DB
@@ -705,13 +770,13 @@ def run(base_filter: str = None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pre-calculate NNCC dashboard metrics")
     parser.add_argument("--base", type=str, default=None, help="Filter by base periodo")
-    parser.add_argument("--all-bases", action="store_true", help="Pre-calculate for every 2025 base")
+    parser.add_argument("--all-bases", action="store_true", help="Pre-calculate for every base")
     args = parser.parse_args()
     if args.all_bases:
         engine = get_engine()
         with engine.connect() as conn:
             rows = conn.execute(text(
-                "SELECT DISTINCT base FROM nncc WHERE base IS NOT NULL AND base LIKE '2025%%' ORDER BY base"
+                "SELECT DISTINCT base FROM nncc WHERE base IS NOT NULL AND base LIKE '%EJECUTADOS' ORDER BY base"
             )).fetchall()
         bases = [r[0] for r in rows]
         print(f"Found {len(bases)} bases to pre-calculate: {bases}")

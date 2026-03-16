@@ -87,6 +87,15 @@ async def get_dashboard_mal_ejecutados(
     return await nncc_dashboard_service.get_mal_ejecutados(base)
 
 
+@router.get("/dashboard/no-efectivos")
+async def dashboard_no_efectivos(
+    base: Optional[str] = Query(None, description="Filtrar por base/periodo"),
+    current_user: User = Depends(get_current_user),
+):
+    """Analysis of non-effective inspections by category."""
+    return await nncc_dashboard_service.get_no_efectivos_analysis(base)
+
+
 @router.get("/dashboard/ejecucion-stats")
 async def get_dashboard_ejecucion_stats(
     base: Optional[str] = Query(None, description="Base/periodo"),

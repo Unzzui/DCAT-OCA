@@ -64,6 +64,7 @@ class NNCCModel(Base):
     link_formulario = Column(Text, nullable=True)
     contratista_enel = Column(String(100), nullable=True, index=True)
     categoria_mal_ejecutado = Column(Text, nullable=True)
+    categoria_no_efectivo = Column(Text, nullable=True)
     latitud = Column(Float, nullable=True)
     longitud = Column(Float, nullable=True)
 
