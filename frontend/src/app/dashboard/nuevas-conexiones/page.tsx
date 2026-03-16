@@ -276,7 +276,7 @@ export default function NuevasConexionesPage() {
       if (selectedZona) params.zona = selectedZona
       if (detailSearch) params.search = detailSearch
       applyDrillFilters(params)
-      setDetailData(await api.get<DetailResponse>('/api/v1/nuevas-conexiones/', params))
+      setDetailData(await api.get<DetailResponse>('/api/v1/nuevas-conexiones', params))
     } catch { setDetailData(null) }
     finally { setDetailLoading(false) }
   }, [selectedBase, selectedZona, detailPage, detailSearch, applyDrillFilters])
