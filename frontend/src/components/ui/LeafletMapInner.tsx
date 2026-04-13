@@ -1,10 +1,11 @@
 'use client'
 
 import { useMemo, useEffect, useState, useRef } from 'react'
-import { MapContainer, TileLayer, CircleMarker, Popup, Polygon, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, CircleMarker, Popup, Polygon, useMap, Marker } from 'react-leaflet'
+import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { getPointCategory, CATEGORY_COLORS } from './mapUtils'
-import type { MapPoint } from './mapUtils'
+import type { MapPoint, MarkerCategory } from './mapUtils'
 
 // Re-export for consumers that import from this file
 export type { MapPoint, MarkerCategory } from './mapUtils'
@@ -16,8 +17,69 @@ interface LeafletMapProps {
   onPointClick?: (point: MapPoint) => void
 }
 
+// Grupo de puntos con la misma coordenada
+interface PointGroup {
+  lat: number
+  lng: number
+  points: MapPoint[]
+  dominantCategory: MarkerCategory
+}
+
 function getMarkerColor(point: MapPoint): string {
   return CATEGORY_COLORS[getPointCategory(point)]
+}
+
+// Agrupa puntos con coordenadas identicas
+function groupPointsByCoordinate(points: MapPoint[]): PointGroup[] {
+  const groups = new Map<string, MapPoint[]>()
+
+  for (const point of points) {
+    // Usar precision de 6 decimales para agrupar
+    const key = `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`
+    if (!groups.has(key)) {
+      groups.set(key, [])
+    }
+    groups.get(key)!.push(point)
+  }
+
+  return Array.from(groups.entries()).map(([key, pts]) => {
+    const [lat, lng] = key.split(',').map(Number)
+
+    // Determinar categoria dominante (prioridad: mal > no_efectiva > pendiente > bien)
+    const categories = pts.map(p => getPointCategory(p))
+    let dominantCategory: MarkerCategory = 'bien'
+    if (categories.includes('mal')) dominantCategory = 'mal'
+    else if (categories.includes('no_efectiva')) dominantCategory = 'no_efectiva'
+    else if (categories.includes('pendiente')) dominantCategory = 'pendiente'
+
+    return { lat, lng, points: pts, dominantCategory }
+  })
+}
+
+// Crear icono custom para grupos con multiples puntos
+function createClusterIcon(count: number, color: string): L.DivIcon {
+  return L.divIcon({
+    className: 'custom-cluster-icon',
+    html: `
+      <div style="
+        background: ${color};
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 2px solid white;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 600;
+        font-size: 11px;
+        font-family: system-ui, sans-serif;
+      ">${count}</div>
+    `,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+  })
 }
 
 // ─── Zone colors (exported for legend use) ──────────────────────────────────
@@ -175,6 +237,9 @@ export default function LeafletMapInner({ points, height = '400px', onPointClick
     [geoData, points]
   )
 
+  // Agrupar puntos con coordenadas identicas
+  const pointGroups = useMemo(() => groupPointsByCoordinate(points), [points])
+
   return (
     <div style={{ height, width: '100%', position: 'relative' }}>
       <MapContainer
@@ -207,32 +272,88 @@ export default function LeafletMapInner({ points, height = '400px', onPointClick
           ))
         )}
 
-        {/* Data points */}
-        {points.map((point, index) => (
-          <CircleMarker
-            key={`${point.lat}-${point.lng}-${index}`}
-            center={[point.lat, point.lng]}
-            radius={6}
-            fillOpacity={0.8}
-            weight={1}
-            color={getMarkerColor(point)}
-            fillColor={getMarkerColor(point)}
-            eventHandlers={
-              onPointClick
-                ? { click: () => onPointClick(point) }
-                : undefined
-            }
-          >
-            <Popup>
-              <div className="text-sm leading-relaxed">
-                <p className="font-semibold mb-1">{point.resultado || point.estado_efectividad || 'Sin estado'}</p>
-                <p><span className="font-medium">Zona:</span> {point.zona}</p>
-                <p><span className="font-medium">Comuna:</span> {point.comuna}</p>
-                <p><span className="font-medium">Contratista:</span> {point.contratista}</p>
-              </div>
-            </Popup>
-          </CircleMarker>
-        ))}
+        {/* Data points - agrupados por coordenada */}
+        {pointGroups.map((group, groupIndex) => {
+          const color = CATEGORY_COLORS[group.dominantCategory]
+
+          // Punto unico: CircleMarker simple
+          if (group.points.length === 1) {
+            const point = group.points[0]
+            return (
+              <CircleMarker
+                key={`single-${group.lat}-${group.lng}-${groupIndex}`}
+                center={[group.lat, group.lng]}
+                radius={6}
+                fillOpacity={0.8}
+                weight={1}
+                color={getMarkerColor(point)}
+                fillColor={getMarkerColor(point)}
+                eventHandlers={
+                  onPointClick
+                    ? { click: () => onPointClick(point) }
+                    : undefined
+                }
+              >
+                <Popup>
+                  <div className="text-sm leading-relaxed">
+                    <p className="font-semibold mb-1">{point.resultado || point.estado_efectividad || 'Sin estado'}</p>
+                    <p><span className="font-medium">Zona:</span> {point.zona}</p>
+                    <p><span className="font-medium">Comuna:</span> {point.comuna}</p>
+                    <p><span className="font-medium">Contratista:</span> {point.contratista}</p>
+                    {point.direccion && <p><span className="font-medium">Direccion:</span> {point.direccion}</p>}
+                  </div>
+                </Popup>
+              </CircleMarker>
+            )
+          }
+
+          // Multiples puntos en la misma ubicacion: Marker con icono custom
+          return (
+            <Marker
+              key={`cluster-${group.lat}-${group.lng}-${groupIndex}`}
+              position={[group.lat, group.lng]}
+              icon={createClusterIcon(group.points.length, color)}
+            >
+              <Popup maxHeight={280}>
+                <div className="text-sm" style={{ minWidth: 220 }}>
+                  <div className="font-semibold text-slate-700 border-b border-slate-200 pb-1.5 mb-2" style={{ fontSize: 12 }}>
+                    {group.points.length} inspecciones en esta ubicacion
+                  </div>
+                  <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                    {group.points.map((point, idx) => (
+                      <div
+                        key={idx}
+                        className={`py-1.5 ${idx < group.points.length - 1 ? 'border-b border-slate-100' : ''}`}
+                        style={{ cursor: onPointClick ? 'pointer' : 'default' }}
+                        onClick={() => onPointClick?.(point)}
+                      >
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span
+                            style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: '50%',
+                              background: getMarkerColor(point),
+                              flexShrink: 0,
+                            }}
+                          />
+                          <span className="font-medium text-slate-700" style={{ fontSize: 11 }}>
+                            {point.resultado || point.estado_efectividad || 'Sin estado'}
+                          </span>
+                        </div>
+                        <div className="text-slate-500 pl-3" style={{ fontSize: 10, lineHeight: 1.4 }}>
+                          {point.direccion && <div>{point.direccion}</div>}
+                          <div>{point.contratista}</div>
+                          {point.cliente && <div>Cliente: {point.cliente}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </Popup>
+            </Marker>
+          )
+        })}
       </MapContainer>
 
       {/* Zone legend overlay */}
